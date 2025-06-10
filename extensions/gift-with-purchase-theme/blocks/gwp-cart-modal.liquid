@@ -1,0 +1,166 @@
+{% comment %}
+  Gift with Purchase Cart Modal - App Embed Block
+  This block loads the cart modal functionality when enabled in the theme.
+{% endcomment %}
+
+<script>
+  // Load the GWP cart modal script
+  (function() {
+    // Prevent loading multiple times
+    if (window.gwpCartModalLoaded) {
+      console.log('GWP Cart Modal: Already loaded, skipping...');
+      return;
+    }
+    window.gwpCartModalLoaded = true;
+    
+    // Get shop domain
+    const shopDomain = window.location.hostname;
+    
+    // Configuration from block settings
+    const config = {
+      enabled: {{ block.settings.enabled | json }},
+      delay: {{ block.settings.delay | json }},
+      debug: {{ block.settings.debug | json }}
+    };
+    
+    // Only load if enabled
+    if (!config.enabled) {
+      if (config.debug) {
+        console.log('GWP Cart Modal: Disabled in settings');
+      }
+      return;
+    }
+    
+    if (config.debug) {
+      console.log('GWP Cart Modal: Initializing...', config);
+      console.log('GWP Cart Modal: Shop domain:', shopDomain);
+      console.log('GWP Cart Modal: Current URL:', window.location.href);
+      console.log('GWP Cart Modal: Document ready state:', document.readyState);
+    }
+    
+    // Create and load the cart modal script
+    const script = document.createElement('script');
+    script.src = `https://gwp-2-0.vercel.app/cart-modal?shop=${encodeURIComponent(shopDomain)}`;
+    script.async = true;
+    script.onload = () => {
+      if (config.debug) {
+        console.log('GWP Cart Modal: Script loaded successfully');
+        console.log('GWP Cart Modal: GWP_CART_MODAL_LOADED:', window.GWP_CART_MODAL_LOADED);
+      }
+    };
+    script.onerror = (error) => {
+      if (config.debug) {
+        console.error('GWP Cart Modal: Failed to load script', error);
+      }
+    };
+    
+    // Add delay if specified
+    const loadScript = () => {
+      try {
+        document.head.appendChild(script);
+        if (config.debug) {
+          console.log('GWP Cart Modal: Script tag added to head');
+        }
+      } catch (error) {
+        if (config.debug) {
+          console.error('GWP Cart Modal: Error adding script to head:', error);
+        }
+      }
+    };
+    
+    if (config.delay && config.delay > 0) {
+      if (config.debug) {
+        console.log('GWP Cart Modal: Delaying script load by', config.delay, 'ms');
+      }
+      setTimeout(loadScript, config.delay);
+    } else {
+      loadScript();
+    }
+    
+    // Add cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      // Find and call the cleanup function with the unique namespace
+      Object.keys(window).forEach(key => {
+        if (key.startsWith('cleanupGWP_gwp-modal-') && typeof window[key] === 'function') {
+          try {
+            window[key]();
+            if (config.debug) {
+              console.log('GWP Cart Modal: Cleanup function called:', key);
+            }
+          } catch (error) {
+            if (config.debug) {
+              console.error('GWP Cart Modal: Error calling cleanup function:', error);
+            }
+          }
+        }
+      });
+    });
+    
+    // Debug cart information if debug mode is enabled
+    if (config.debug) {
+      setTimeout(() => {
+        console.log('GWP Cart Modal Debug Info:');
+        console.log('- Shopify object:', window.Shopify);
+        console.log('- Shopify.cart:', window.Shopify?.cart);
+        console.log('- window.cart:', window.cart);
+        
+        // Try to detect cart total
+        const selectors = [
+          '[data-cart-total]',
+          '.cart-total',
+          '.cart__total-price',
+          '.cart-drawer__total',
+          '.cart-subtotal',
+          '.totals__total-value',
+          '.cart__total',
+          '.total-price',
+          '[data-total-price]',
+          '.cart-total-price',
+          '.cart__subtotal',
+          '.subtotal-price'
+        ];
+        
+        selectors.forEach(selector => {
+          const element = document.querySelector(selector);
+          if (element) {
+            console.log(`- Found cart element ${selector}:`, element.textContent);
+          }
+        });
+      }, 3000);
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "GWP Cart Modal",
+  "target": "body",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Enable Cart Modal",
+      "default": true,
+      "info": "Show the gift selection modal when customers reach the gift threshold"
+    },
+    {
+      "type": "range",
+      "id": "delay",
+      "min": 0,
+      "max": 5000,
+      "step": 500,
+      "unit": "ms",
+      "label": "Modal delay",
+      "default": 1000,
+      "info": "Delay before loading the modal script"
+    },
+    {
+      "type": "checkbox",
+      "id": "debug",
+      "label": "Debug Mode",
+      "default": false,
+      "info": "Enable console logging for troubleshooting"
+    }
+  ]
+}
+{% endschema %} 

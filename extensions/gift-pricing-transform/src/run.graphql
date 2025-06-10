@@ -1,0 +1,12 @@
+query RunInput {
+  cart {
+    lines {
+      id
+      quantity
+      attribute(key: "_gift_with_purchase") {
+        key
+        value
+      }
+    }
+  }
+}
