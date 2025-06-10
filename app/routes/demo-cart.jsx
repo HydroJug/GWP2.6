@@ -102,7 +102,7 @@ export const loader = async ({ request }) => {
             <div class="instructions">
                 <strong>🔧 How to Install on Your Store:</strong><br>
                 Add this script to your cart page template:<br>
-                <code>&lt;script src="https://gwp-2-0.vercel.app/cart-modal?shop={{ shop.myshopify_domain }}"&gt;&lt;/script&gt;</code>
+                <code>&lt;script src="https://gwp-2-5.vercel.app/cart-modal?shop={{ shop.myshopify_domain }}"&gt;&lt;/script&gt;</code>
             </div>
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e5e5; text-align: center; color: #666;">
@@ -137,7 +137,7 @@ export const loader = async ({ request }) => {
         </script>
         
         <!-- Load the actual GWP cart modal script -->
-        <script src="https://gwp-2-0.vercel.app/cart-modal?shop=${shop}"></script>
+        <script src="https://gwp-2-5.vercel.app/cart-modal?shop=${shop}"></script>
     </body>
     </html>
   `;

@@ -662,7 +662,7 @@ export const loader = async ({ request }) => {
       async function fetchGWPConfig() {
         try {
           console.log('GWP Debug: Fetching GWP configuration...');
-          const response = await fetch(\`https://gwp-2-0.vercel.app/api/public/gwp-settings?shop=${shop}\`);
+          const response = await fetch(\`https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=${shop}\`);
           const data = await response.json();
           console.log('GWP Debug: GWP config response:', data);
           
@@ -3836,7 +3836,7 @@ export const loader = async ({ request }) => {
         
         // Test the API call
         const shopDomain = window.location.hostname;
-        const apiUrl = \`https://gwp-2-0.vercel.app/api/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
+        const apiUrl = \`https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
         console.log('API URL that would be called:', apiUrl);
         
         // Make the actual API call to test
