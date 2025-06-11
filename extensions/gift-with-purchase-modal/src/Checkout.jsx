@@ -56,20 +56,8 @@ function Extension() {
     ) || line.cost.totalAmount.amount === 0; // Also check for $0 items
   });
 
-  // Define allowed GWP discount codes
-  const allowedGWPDiscountCodes = [
-    'FREE SILVER TIER GIFT!',
-    'FREE GOLD TIER GIFT!'
-  ];
-
-  // Check if discount codes are applied and filter out GWP codes
+  // Check if discount codes are applied
   const appliedDiscountCodes = discountCodes || [];
-  const nonGWPDiscountCodes = appliedDiscountCodes.filter(discount => {
-    const code = discount.code || discount;
-    return !allowedGWPDiscountCodes.includes(code.toUpperCase());
-  });
-
-  const hasNonGWPDiscountCodes = nonGWPDiscountCodes.length > 0;
   const hasAnyDiscountCodes = appliedDiscountCodes.length > 0;
   const showDiscountWarning = hasGWPItems && hasAnyDiscountCodes;
 
@@ -78,10 +66,8 @@ function Extension() {
     console.log('GWP Extension Debug:', {
       hasGWPItems,
       hasAnyDiscountCodes,
-      hasNonGWPDiscountCodes,
       showDiscountWarning,
       discountCodes: discountCodes?.map(code => code.code || code) || [],
-      nonGWPDiscountCodes: nonGWPDiscountCodes.map(code => code.code || code),
       cartLinesWithAttributes: cartLines.map(line => ({
         id: line.id,
         title: line.merchandise.title,
@@ -89,7 +75,7 @@ function Extension() {
         price: line.cost.totalAmount.amount
       }))
     });
-  }, [hasGWPItems, hasAnyDiscountCodes, hasNonGWPDiscountCodes, showDiscountWarning, discountCodes, nonGWPDiscountCodes, cartLines]);
+  }, [hasGWPItems, hasAnyDiscountCodes, showDiscountWarning, discountCodes, cartLines]);
 
   // Fetch tier configuration from our API
   useEffect(() => {
@@ -617,7 +603,7 @@ function Extension() {
 
   // Check if we should show the gift offer
   const availableSelections = getAvailableSelections();
-  const showGiftOffer = Object.keys(availableSelections).length > 0 && !hasNonGWPDiscountCodes;
+  const showGiftOffer = Object.keys(availableSelections).length > 0 && !hasAnyDiscountCodes;
   const highestTier = getHighestTier();
   const nextTier = getNextTierThreshold();
 
@@ -777,8 +763,8 @@ function Extension() {
     );
   }
 
-  // Show progress toward first tier (only if no non-GWP discount codes are applied)
-  if (availableTiers.length > 0 && cartTotal > 0 && !hasNonGWPDiscountCodes) {
+  // Show progress toward first tier (only if no discount codes are applied)
+  if (availableTiers.length > 0 && cartTotal > 0 && !hasAnyDiscountCodes) {
     const firstTier = availableTiers[0];
     const progress = (cartTotal / firstTier.thresholdAmount) * 100;
     const remaining = firstTier.thresholdAmount - cartTotal;
@@ -810,8 +796,8 @@ function Extension() {
     }
   }
 
-  // Show special banner when non-GWP discount codes are blocking gift offers
-  if (hasNonGWPDiscountCodes && (Object.keys(availableSelections).length > 0 || (availableTiers.length > 0 && cartTotal >= availableTiers[0].thresholdAmount))) {
+  // Show special banner when discount codes are blocking gift offers
+  if (hasAnyDiscountCodes && (Object.keys(availableSelections).length > 0 || (availableTiers.length > 0 && cartTotal >= availableTiers[0].thresholdAmount))) {
     return (
       <BlockStack spacing="base">
         <Banner status="warning">
@@ -821,9 +807,6 @@ function Extension() {
             </Text>
             <Text size="small">
               Free gifts cannot be combined with other discount codes. Remove your current discount code to access free gifts, or keep your discount for savings.
-            </Text>
-            <Text size="extraSmall" appearance="subdued">
-              Allowed codes: FREE SILVER TIER GIFT!, FREE GOLD TIER GIFT!
             </Text>
           </BlockStack>
         </Banner>

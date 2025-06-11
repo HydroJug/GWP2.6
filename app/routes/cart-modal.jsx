@@ -82,7 +82,13 @@ export const loader = async ({ request }) => {
             return;
           }
           
-          // For auto-show, use a simpler eligibility check that doesn't filter out tiers with existing gifts
+          // Check if auto-show is temporarily suppressed (e.g., after adding gifts)
+          if (!forceShow && window.gwpSuppressAutoShow) {
+            console.log('GWP Debug: Auto-show is temporarily suppressed, skipping');
+            return;
+          }
+          
+          // For auto-show, use a simpler eligibility check that shows modal when first eligible
           const eligibleTiers = await checkGiftEligibilityForAutoShow();
           console.log('GWP Debug: Eligible tiers found for auto-show:', eligibleTiers.length);
           eligibleTiers.forEach(tier => {
@@ -127,7 +133,7 @@ export const loader = async ({ request }) => {
         }
       }
       
-      // Simple eligibility check for auto-show - shows modal when customer first becomes eligible
+      // Auto-show eligibility check - shows modal when customer has available selections
       async function checkGiftEligibilityForAutoShow() {
         try {
           const cartTotal = await getCartTotal();
@@ -138,7 +144,21 @@ export const loader = async ({ request }) => {
             return [];
           }
           
-          // Simple check: just see if cart total meets any tier threshold
+          // Check for non-GWP discount codes that would block gift eligibility
+          const currentDiscountCodes = cartData?.discounts || [];
+          const nonGWPDiscountCodes = currentDiscountCodes.filter(discount => 
+            discount.code && (
+              discount.code.toUpperCase() !== 'FREE SILVER TIER GIFT!' &&
+              discount.code.toUpperCase() !== 'FREE GOLD TIER GIFT!'
+            )
+          );
+          
+          if (nonGWPDiscountCodes.length > 0) {
+            console.log('GWP Debug: Auto-show blocked by non-GWP discount codes:', nonGWPDiscountCodes.map(d => d.code));
+            return [];
+          }
+          
+          // Get eligible tiers based on cart total
           const eligibleTiers = gwpConfig.filter(tier => {
             const isEligible = cartTotal >= tier.thresholdAmount;
             console.log('GWP Debug: Auto-show tier', tier.name, 'threshold:', tier.thresholdAmount, 'eligible:', isEligible);
@@ -148,15 +168,44 @@ export const loader = async ({ request }) => {
           // Sort tiers by threshold amount (highest first) to prioritize higher tiers
           eligibleTiers.sort((a, b) => b.thresholdAmount - a.thresholdAmount);
           
-          console.log('GWP Debug: Auto-show eligible tiers:', eligibleTiers.length);
-          return eligibleTiers;
+          // Check if any of these tiers have available selections
+          const tiersWithAvailableSelections = [];
+          
+          for (const tier of eligibleTiers) {
+            // Check if this specific tier already has gifts in cart
+            const tierGiftsInCart = cartData?.items?.filter(item => {
+              const hasGWPProperty = item.properties && (
+                // Cart modal tier identification
+                item.properties._gwp_tier_id === tier.id ||
+                item.properties['_gwp_tier_id'] === tier.id ||
+                item.properties._gwp_tier === tier.name ||
+                item.properties['_gwp_tier'] === tier.name ||
+                // Checkout extension tier identification
+                item.properties._gift_tier_id === tier.id ||
+                item.properties['_gift_tier_id'] === tier.id
+              );
+              return hasGWPProperty;
+            }) || [];
+            
+            const maxSelections = tier.maxSelections || 1;
+            const hasAvailableSelections = tierGiftsInCart.length < maxSelections;
+            
+            console.log('GWP Debug: Auto-show tier', tier.name, 'has', tierGiftsInCart.length, 'gifts, max:', maxSelections, 'available:', hasAvailableSelections);
+            
+            if (hasAvailableSelections) {
+              tiersWithAvailableSelections.push(tier);
+            }
+          }
+          
+          console.log('GWP Debug: Auto-show tiers with available selections:', tiersWithAvailableSelections.length);
+          return tiersWithAvailableSelections;
         } catch (error) {
           console.log('GWP Debug: Error checking auto-show eligibility:', error);
           return [];
         }
       }
       
-      // Automatic gift removal based on tier thresholds
+      // Automatic gift removal based on tier thresholds and discount codes
       async function removeIneligibleGifts() {
         try {
           console.log('GWP Debug: === CHECKING FOR INELIGIBLE GIFTS TO REMOVE ===');
@@ -168,6 +217,25 @@ export const loader = async ({ request }) => {
           
           const cartTotal = await getCartTotal();
           console.log('GWP Debug: Current cart total for removal check:', cartTotal, 'cents ($' + (cartTotal / 100).toFixed(2) + ')');
+          
+          // Check current discount codes in cart
+          const currentDiscountCodes = cartData.discounts || [];
+          const gwpDiscountCodes = currentDiscountCodes.filter(discount => 
+            discount.code && (
+              discount.code.toUpperCase() === 'FREE SILVER TIER GIFT!' ||
+              discount.code.toUpperCase() === 'FREE GOLD TIER GIFT!'
+            )
+          );
+          
+          const nonGWPDiscountCodes = currentDiscountCodes.filter(discount => 
+            discount.code && (
+              discount.code.toUpperCase() !== 'FREE SILVER TIER GIFT!' &&
+              discount.code.toUpperCase() !== 'FREE GOLD TIER GIFT!'
+            )
+          );
+          
+          console.log('GWP Debug: Current GWP discount codes:', gwpDiscountCodes.map(d => d.code));
+          console.log('GWP Debug: Current non-GWP discount codes:', nonGWPDiscountCodes.map(d => d.code));
           
           // Find all gifts currently in cart
           const giftsInCart = cartData.items.filter(item => {
@@ -190,9 +258,10 @@ export const loader = async ({ request }) => {
           
           const giftsToRemove = [];
           
-          // Check each gift against tier thresholds
+          // Check each gift against tier thresholds and discount code rules
           giftsInCart.forEach(gift => {
             let shouldRemove = false;
+            let removalReason = '';
             let giftTierThreshold = null;
             let giftTierName = 'Unknown';
             
@@ -222,11 +291,51 @@ export const loader = async ({ request }) => {
                 giftTierThreshold = matchingTier.thresholdAmount;
                 giftTierName = matchingTier.name;
                 
-                // Check if cart total is below this tier's threshold
+                // Rule 1: Check if cart total is below this tier's threshold
                 if (cartTotal < giftTierThreshold) {
                   shouldRemove = true;
+                  removalReason = 'cart total below threshold';
                   console.log('GWP Debug: Gift "' + gift.title + '" from ' + giftTierName + ' tier should be removed (cart: $' + (cartTotal / 100).toFixed(2) + ', threshold: $' + (giftTierThreshold / 100).toFixed(2) + ')');
-                } else {
+                }
+                
+                // Rule 2: Check if there are non-GWP discount codes applied (gifts can't be combined with other discounts)
+                if (!shouldRemove && nonGWPDiscountCodes.length > 0) {
+                  shouldRemove = true;
+                  removalReason = 'incompatible with other discount codes';
+                  console.log('GWP Debug: Gift "' + gift.title + '" from ' + giftTierName + ' tier should be removed (incompatible with discount codes: ' + nonGWPDiscountCodes.map(d => d.code).join(', ') + ')');
+                }
+                
+                // Rule 3: For Gold tier specifically, check if the Gold tier discount code was removed
+                // NOTE: Commenting out discount code removal logic as it's too aggressive
+                // Gifts should primarily be removed based on cart total, not discount codes
+                /*
+                if (!shouldRemove && giftTierName === 'Gold') {
+                  const hasGoldDiscountCode = gwpDiscountCodes.some(discount => 
+                    discount.code && discount.code.toUpperCase() === 'FREE GOLD TIER GIFT!'
+                  );
+                  
+                  if (!hasGoldDiscountCode) {
+                    shouldRemove = true;
+                    removalReason = 'Gold tier discount code was removed';
+                    console.log('GWP Debug: Gold tier gift "' + gift.title + '" should be removed (Gold tier discount code not present)');
+                  }
+                }
+                
+                // Rule 4: For Silver tier specifically, check if the Silver tier discount code was removed
+                if (!shouldRemove && giftTierName === 'Silver') {
+                  const hasSilverDiscountCode = gwpDiscountCodes.some(discount => 
+                    discount.code && discount.code.toUpperCase() === 'FREE SILVER TIER GIFT!'
+                  );
+                  
+                  if (!hasSilverDiscountCode) {
+                    shouldRemove = true;
+                    removalReason = 'Silver tier discount code was removed';
+                    console.log('GWP Debug: Silver tier gift "' + gift.title + '" should be removed (Silver tier discount code not present)');
+                  }
+                }
+                */
+                
+                if (!shouldRemove) {
                   console.log('GWP Debug: Gift "' + gift.title + '" from ' + giftTierName + ' tier is still eligible (cart: $' + (cartTotal / 100).toFixed(2) + ', threshold: $' + (giftTierThreshold / 100).toFixed(2) + ')');
                 }
               } else {
@@ -237,7 +346,15 @@ export const loader = async ({ request }) => {
                 
                 if (cartTotal < lowestTier.thresholdAmount) {
                   shouldRemove = true;
+                  removalReason = 'cart below lowest tier threshold';
                   console.log('GWP Debug: Unidentified gift "' + gift.title + '" should be removed (cart below lowest tier threshold)');
+                }
+                
+                // Also remove unidentified gifts if there are non-GWP discount codes
+                if (!shouldRemove && nonGWPDiscountCodes.length > 0) {
+                  shouldRemove = true;
+                  removalReason = 'incompatible with other discount codes';
+                  console.log('GWP Debug: Unidentified gift "' + gift.title + '" should be removed (incompatible with discount codes)');
                 }
               }
             }
@@ -246,7 +363,8 @@ export const loader = async ({ request }) => {
               giftsToRemove.push({
                 item: gift,
                 tierName: giftTierName,
-                threshold: giftTierThreshold
+                threshold: giftTierThreshold,
+                reason: removalReason
               });
             }
           });
@@ -324,358 +442,94 @@ export const loader = async ({ request }) => {
                   }
                 }
                 
-                // If removal was successful, trigger immediate AND comprehensive UI refresh
+                // If removal was successful, trigger comprehensive UI refresh
                 if (removalSuccessful) {
-                  console.log('GWP Debug: Gift removal successful, triggering immediate UI refresh...');
+                  console.log('GWP Debug: Gift removal successful, triggering comprehensive UI refresh...');
                   
-                  // IMMEDIATE UI refresh - don't wait for timeouts
                   try {
-                    // Update cart data immediately
-                    const immediateCartResponse = await fetch('/cart.js');
-                    const immediateUpdatedCart = await immediateCartResponse.json();
-                    cartData = immediateUpdatedCart;
+                    // Update cart data first
+                    const updatedCartResponse = await fetch('/cart.js');
+                    const updatedCart = await updatedCartResponse.json();
+                    cartData = updatedCart;
                     
                     if (window.Shopify) {
-                      window.Shopify.cart = immediateUpdatedCart;
+                      window.Shopify.cart = updatedCart;
                     }
                     
-                    // Dispatch immediate cart events (theme-safe)
-                    try {
-                      const compatibleDetail = {
-                        cart: immediateUpdatedCart,
-                        source: 'gwp_immediate_removal',
-                        sections: {},
-                        cartData: immediateUpdatedCart,
-                        items: immediateUpdatedCart.items || []
-                      };
-                      
-                      // Only dispatch safe immediate events
-                      const safeEvents = ['cart:updated', 'cart:refresh'];
-                      safeEvents.forEach(eventName => {
-                        try {
-                          document.dispatchEvent(new CustomEvent(eventName, {
-                            detail: compatibleDetail,
-                            bubbles: true
-                          }));
-                          console.log('GWP Debug: Dispatched immediate', eventName);
-                        } catch (e) { 
-                          console.log('GWP Debug: Error dispatching immediate', eventName, ':', e);
-                        }
-                      });
-                    } catch (immediateEventError) {
-                      console.log('GWP Debug: Error in immediate event dispatch:', immediateEventError);
-                    }
+                    // Multiple UI refresh approaches for maximum compatibility
                     
-                    // Try immediate theme refresh
+                    // 1. Standard cart:updated event
+                    document.dispatchEvent(new CustomEvent('cart:updated', {
+                      detail: {
+                        cart: updatedCart,
+                        source: 'gwp_removal'
+                      },
+                      bubbles: true
+                    }));
+                    
+                    // 2. Shopify cart:change event
+                    document.dispatchEvent(new CustomEvent('cart:change', {
+                      detail: updatedCart,
+                      bubbles: true
+                    }));
+                    
+                    // 3. Theme-specific refresh methods
                     if (window.theme?.cart?.refresh) {
                       window.theme.cart.refresh();
-                      console.log('GWP Debug: Called immediate theme.cart.refresh');
                     }
                     
-                    // Try to immediately refresh cart drawer
-                    const cartDrawer = document.querySelector('cart-drawer');
-                    if (cartDrawer && typeof cartDrawer.show === 'function') {
-                      cartDrawer.show();
-                      console.log('GWP Debug: Called immediate cartDrawer.show');
+                    // 4. Dawn theme specific
+                    if (window.CartDrawer?.renderContents) {
+                      window.CartDrawer.renderContents(updatedCart);
                     }
-                  } catch (immediateError) {
-                    console.log('GWP Debug: Error in immediate refresh:', immediateError);
+                    
+                    // 5. Try common cart drawer refresh methods
+                    if (window.refreshCartDrawer) {
+                      window.refreshCartDrawer();
+                    }
+                    
+                    // 6. Trigger cart drawer update via sections API
+                    try {
+                      const sectionsResponse = await fetch('/cart?sections=cart-drawer,cart-icon-bubble');
+                      if (sectionsResponse.ok) {
+                        const sections = await sectionsResponse.json();
+                        
+                        // Update cart drawer if it exists
+                        const cartDrawer = document.querySelector('cart-drawer');
+                        if (cartDrawer && sections['cart-drawer']) {
+                          cartDrawer.innerHTML = sections['cart-drawer'];
+                        }
+                        
+                        // Update cart icon bubble
+                        const cartBubble = document.querySelector('.cart-count-bubble, [data-cart-count]');
+                        if (cartBubble && sections['cart-icon-bubble']) {
+                          const tempDiv = document.createElement('div');
+                          tempDiv.innerHTML = sections['cart-icon-bubble'];
+                          const newBubble = tempDiv.querySelector('.cart-count-bubble, [data-cart-count]');
+                          if (newBubble) {
+                            cartBubble.outerHTML = newBubble.outerHTML;
+                          }
+                        }
+                      }
+                    } catch (sectionsError) {
+                      console.log('GWP Debug: Sections API refresh failed:', sectionsError);
+                    }
+                    
+                    // 7. Force page reload as last resort if cart is empty after removal
+                    if (updatedCart.item_count === 0) {
+                      console.log('GWP Debug: Cart is now empty, forcing page reload for clean state');
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 1000);
+                    }
+                    
+                    console.log('GWP Debug: Comprehensive UI refresh completed');
+                    
+                  } catch (refreshError) {
+                    console.log('GWP Debug: Error in comprehensive UI refresh:', refreshError);
                   }
                   
-                  // Also refresh our cart data for the comprehensive refresh
-                  await fetchCartData();
-                  
-                  // Comprehensive UI refresh - multiple methods to ensure cart UI updates (reduced delay)
-                  setTimeout(async () => {
-                    try {
-                      // Update Shopify.cart object
-                      const cartResponse = await fetch('/cart.js');
-                      const updatedCart = await cartResponse.json();
-                      cartData = updatedCart;
-                      
-                      if (window.Shopify) {
-                        window.Shopify.cart = updatedCart;
-                        console.log('GWP Debug: Updated window.Shopify.cart');
-                      }
-                      
-                      // Method 1: Theme refresh functions
-                      const themeRefreshMethods = [
-                        () => window.theme?.cart?.refresh?.(),
-                        () => window.Shopify?.theme?.cart?.refresh?.(),
-                        () => window.cartRefresh?.(),
-                        () => window.updateCart?.(),
-                        () => window.refreshCart?.()
-                      ];
-                      
-                      for (const method of themeRefreshMethods) {
-                        try {
-                          const result = method();
-                          if (result) {
-                            console.log('GWP Debug: Successfully called theme refresh method after removal');
-                          }
-                        } catch (methodError) {
-                          // Continue to next method
-                        }
-                      }
-                      
-                      // Method 2: Dispatch cart events (theme-compatible)
-                      try {
-                        // Create a theme-compatible cart change event
-                        const compatibleDetail = {
-                          cart: updatedCart,
-                          source: 'gwp_removal',
-                          // Add common theme expectations
-                          sections: {},
-                          cartData: updatedCart,
-                          items: updatedCart.items || []
-                        };
-                        
-                        // Only dispatch essential events to avoid overwhelming theme listeners
-                        const essentialEvents = [
-                          { name: 'cart:updated', detail: compatibleDetail },
-                          { name: 'cart:refresh', detail: compatibleDetail }
-                        ];
-                        
-                        essentialEvents.forEach(({ name, detail }) => {
-                          try {
-                            const event = new CustomEvent(name, { detail, bubbles: true });
-                            document.dispatchEvent(event);
-                            console.log('GWP Debug: Dispatched', name, 'event after removal');
-                          } catch (eventError) {
-                            console.log('GWP Debug: Error dispatching', name, ':', eventError);
-                          }
-                        });
-                        
-                        // Skip cart:change event to prevent theme conflicts
-                        console.log('GWP Debug: Skipping cart:change event to prevent theme section errors');
-                        
-                      } catch (eventSectionError) {
-                        console.log('GWP Debug: Error in event dispatch section:', eventSectionError);
-                      }
-                      
-                      // Method 3: Direct cart drawer refresh
-                      const cartDrawerSelectors = [
-                        'cart-drawer',
-                        '[data-cart-drawer]',
-                        '.cart-drawer',
-                        '.js-cart-drawer',
-                        '#cart-drawer'
-                      ];
-                      
-                      for (const selector of cartDrawerSelectors) {
-                        try {
-                          const cartDrawer = document.querySelector(selector);
-                          if (cartDrawer) {
-                            console.log('GWP Debug: Found cart drawer, refreshing after removal:', selector);
-                            
-                            // Try refresh triggers
-                            const refreshTriggers = cartDrawer.querySelectorAll('[data-cart-refresh], .cart-refresh, .js-cart-refresh');
-                            refreshTriggers.forEach(trigger => {
-                              if (typeof trigger.click === 'function') {
-                                trigger.click();
-                                console.log('GWP Debug: Clicked cart refresh trigger after removal');
-                              }
-                            });
-                            
-                            // Skip cartDrawer.show() to prevent theme conflicts
-                            console.log('GWP Debug: Skipping cartDrawer.show() to prevent theme section errors');
-                            break;
-                          }
-                        } catch (drawerError) {
-                          console.log('GWP Debug: Error with cart drawer refresh:', drawerError);
-                        }
-                      }
-                      
-                      // Method 4: Force page elements update
-                      try {
-                        // Update cart count elements
-                        const cartCountSelectors = [
-                          '[data-cart-count]',
-                          '.cart-count',
-                          '.cart-item-count',
-                          '#cart-count',
-                          '.header__cart-count',
-                          '.cart-count-bubble',
-                          '.cart__item-count'
-                        ];
-                        
-                        cartCountSelectors.forEach(selector => {
-                          const elements = document.querySelectorAll(selector);
-                          elements.forEach(element => {
-                            if (element) {
-                              element.textContent = updatedCart.item_count || '0';
-                              console.log('GWP Debug: Updated cart count element');
-                            }
-                          });
-                        });
-                        
-                        // Update cart total elements
-                        const cartTotalSelectors = [
-                          '[data-cart-total]',
-                          '.cart-total',
-                          '.cart__total-price',
-                          '.cart-drawer__total',
-                          '.cart-subtotal',
-                          '.totals__total-value',
-                          '.cart__total',
-                          '.total-price',
-                          '[data-total-price]',
-                          '.cart-total-price',
-                          '.cart__subtotal'
-                        ];
-                        
-                        cartTotalSelectors.forEach(selector => {
-                          const elements = document.querySelectorAll(selector);
-                          elements.forEach(element => {
-                            if (element && updatedCart.total_price !== undefined) {
-                              const formattedPrice = (updatedCart.total_price / 100).toFixed(2);
-                              element.textContent = '$' + formattedPrice;
-                              console.log('GWP Debug: Updated cart total element');
-                            }
-                          });
-                        });
-                      } catch (elementUpdateError) {
-                        console.log('GWP Debug: Error updating cart elements:', elementUpdateError);
-                      }
-                      
-                      // Method 5: Advanced cart refresh techniques
-                      try {
-                        console.log('GWP Debug: Applying advanced cart refresh techniques...');
-                        
-                        // Force reload cart sections/includes that might be cached
-                        const sectionsToRefresh = [
-                          'cart-drawer',
-                          'cart-icon-bubble', 
-                          'cart-notification',
-                          'mini-cart',
-                          'cart-items'
-                        ];
-                        
-                        // Try to trigger Shopify section reloads
-                        if (window.Shopify && window.Shopify.theme) {
-                          sectionsToRefresh.forEach(sectionId => {
-                            try {
-                              if (window.Shopify.theme.sections && window.Shopify.theme.sections.load) {
-                                window.Shopify.theme.sections.load(sectionId);
-                                console.log('GWP Debug: Triggered section reload for:', sectionId);
-                              }
-                            } catch (sectionError) {
-                              // Continue to next section
-                            }
-                          });
-                        }
-                        
-                        // Trigger native browser storage events that themes might listen to
-                        try {
-                          localStorage.setItem('cart-updated-gwp', Date.now().toString());
-                          const storageEvent = new StorageEvent('storage', {
-                            key: 'cart-updated-gwp',
-                            newValue: Date.now().toString(),
-                            url: window.location.href
-                          });
-                          window.dispatchEvent(storageEvent);
-                          console.log('GWP Debug: Dispatched storage event for cart update');
-                        } catch (storageError) {
-                          console.log('GWP Debug: Error with storage event:', storageError);
-                        }
-                        
-                        // Look for and trigger any cart update buttons/triggers on the page
-                        const cartUpdateTriggers = [
-                          '[data-cart-update]',
-                          '.cart-update',
-                          '.js-cart-update',
-                          '[data-update-cart]',
-                          '.update-cart',
-                          'input[name="update"]',
-                          'button[name="update"]'
-                        ];
-                        
-                        cartUpdateTriggers.forEach(selector => {
-                          const triggers = document.querySelectorAll(selector);
-                          triggers.forEach(trigger => {
-                            try {
-                              if (trigger.click && typeof trigger.click === 'function') {
-                                trigger.click();
-                                console.log('GWP Debug: Clicked cart update trigger:', selector);
-                              }
-                            } catch (clickError) {
-                              // Continue to next trigger
-                            }
-                          });
-                        });
-                        
-                        // Force refresh of cart drawer/sidebar content by manipulating attributes
-                        const cartContainers = document.querySelectorAll('cart-drawer, [data-cart-drawer], .cart-drawer, #cart-drawer');
-                        cartContainers.forEach(container => {
-                          try {
-                            // Force re-render by temporarily changing and restoring attributes
-                            const originalStyle = container.style.display;
-                            container.style.display = 'none';
-                            setTimeout(() => {
-                              container.style.display = originalStyle;
-                              console.log('GWP Debug: Force-refreshed cart container display');
-                            }, 10);
-                            
-                            // Try to trigger any data-refresh attributes
-                            if (container.hasAttribute('data-refresh')) {
-                              container.setAttribute('data-refresh', Date.now().toString());
-                            }
-                          } catch (containerError) {
-                            console.log('GWP Debug: Error refreshing cart container:', containerError);
-                          }
-                        });
-                        
-                      } catch (advancedRefreshError) {
-                        console.log('GWP Debug: Error in advanced refresh techniques:', advancedRefreshError);
-                      }
-                      
-                      // Method 6: Simulate cart API response for themes that listen for it
-                      try {
-                        console.log('GWP Debug: Simulating cart API response...');
-                        
-                        // Some themes listen for fetch responses to /cart/change.js
-                        const cartChangeEvent = new CustomEvent('cart:change:success', {
-                          detail: { 
-                            cart: updatedCart,
-                            action: 'remove',
-                            source: 'gwp_auto_removal'
-                          },
-                          bubbles: true
-                        });
-                        document.dispatchEvent(cartChangeEvent);
-                        
-                        // Additional common cart events
-                        const additionalEvents = [
-                          'ajaxCart:updated',
-                          'cart.updated',
-                          'cartUpdated',
-                          'after:cart.change',
-                          'drawer:updated'
-                        ];
-                        
-                        additionalEvents.forEach(eventName => {
-                          try {
-                            const event = new CustomEvent(eventName, {
-                              detail: updatedCart,
-                              bubbles: true
-                            });
-                            document.dispatchEvent(event);
-                            console.log('GWP Debug: Dispatched additional cart event:', eventName);
-                          } catch (eventError) {
-                            // Continue to next event
-                          }
-                        });
-                        
-                      } catch (simulationError) {
-                        console.log('GWP Debug: Error simulating cart API response:', simulationError);
-                      }
-                      
-                    } catch (refreshError) {
-                      console.log('GWP Debug: Error in comprehensive UI refresh:', refreshError);
-                    }
-                  }, 50); // Reduced from 200ms to 50ms for faster UI updates
-                  
-                  // Update progress bar icons after UI refresh
+                  // Update progress bar icons
                   setTimeout(() => {
                     updateProgressBarIcons();
                     console.log('GWP Debug: Updated progress bar icons after removal');
@@ -687,19 +541,15 @@ export const loader = async ({ request }) => {
               }
             }
             
-            // Final cart data refresh and notification
-            setTimeout(async () => {
-              await fetchCartData();
-              updateProgressBarIcons();
-              
-              // Show notification about removed gifts
+            // Final notification only (no additional refresh)
+            if (giftsToRemove.length > 0) {
               try {
                 let notificationMessage = '';
                 if (giftsToRemove.length === 1) {
-                  notificationMessage = 'Free gift automatically removed (cart total below tier threshold)';
-                  console.log('GWP Debug: Removed 1 gift that was no longer eligible');
+                  notificationMessage = 'Free gift automatically removed (' + giftsToRemove[0].reason + ')';
+                  console.log('GWP Debug: Removed 1 gift that was no longer eligible - Reason:', giftsToRemove[0].reason);
                 } else {
-                  notificationMessage = giftsToRemove.length + ' free gifts automatically removed (cart total below tier thresholds)';
+                  notificationMessage = giftsToRemove.length + ' free gifts automatically removed (multiple reasons)';
                   console.log('GWP Debug: Removed ' + giftsToRemove.length + ' gifts that were no longer eligible');
                 }
                 
@@ -709,7 +559,8 @@ export const loader = async ({ request }) => {
                     message: notificationMessage,
                     removedGifts: giftsToRemove.map(g => ({
                       title: g.item.title,
-                      tierName: g.tierName
+                      tierName: g.tierName,
+                      reason: g.reason
                     }))
                   },
                   bubbles: true
@@ -719,9 +570,9 @@ export const loader = async ({ request }) => {
               } catch (notificationError) {
                 console.log('GWP Debug: Error showing removal notification:', notificationError);
               }
-            }, 1000);
-          } else {
-            console.log('GWP Debug: No ineligible gifts found to remove');
+            } else {
+              console.log('GWP Debug: No ineligible gifts found to remove');
+            }
           }
           
         } catch (error) {
@@ -737,6 +588,20 @@ export const loader = async ({ request }) => {
           
           if (!gwpConfig || !Array.isArray(gwpConfig)) {
             console.log('GWP Debug: No valid config available');
+            return [];
+          }
+          
+          // Check for non-GWP discount codes that would block gift eligibility
+          const currentDiscountCodes = cartData?.discounts || [];
+          const nonGWPDiscountCodes = currentDiscountCodes.filter(discount => 
+            discount.code && (
+              discount.code.toUpperCase() !== 'FREE SILVER TIER GIFT!' &&
+              discount.code.toUpperCase() !== 'FREE GOLD TIER GIFT!'
+            )
+          );
+          
+          if (nonGWPDiscountCodes.length > 0) {
+            console.log('GWP Debug: Modal eligibility blocked by non-GWP discount codes:', nonGWPDiscountCodes.map(d => d.code));
             return [];
           }
           
@@ -1186,6 +1051,12 @@ export const loader = async ({ request }) => {
             checkGiftEligibility();
           }, 100);
           
+          // Also do a delayed check to catch any timing issues
+          setTimeout(() => {
+            console.log('GWP Debug: Delayed eligibility check after cart data update...');
+            checkGiftEligibility();
+          }, 1000);
+          
           return cart.total_price || 0;
         } catch (error) {
           console.log('GWP Debug: Error fetching cart via AJAX:', error);
@@ -1441,6 +1312,10 @@ export const loader = async ({ request }) => {
         button.disabled = true;
         button.textContent = 'Adding...';
         }
+        
+        // Set flag to suppress modal auto-show for a period after adding gifts
+        window.gwpSuppressAutoShow = true;
+        console.log('GWP Debug: Suppressing auto-show after adding gifts to cart');
         
         try {
           // Refresh cart data to get current state
@@ -1912,8 +1787,19 @@ export const loader = async ({ request }) => {
           // Refresh cart data
           await fetchCartData();
           
+          // Clear the auto-show suppression flag after a delay to allow cart to settle
+          setTimeout(() => {
+            window.gwpSuppressAutoShow = false;
+            console.log('GWP Debug: Auto-show suppression cleared after successful gift addition');
+          }, 5000); // 5 seconds should be enough for cart to fully update
+          
         } catch (error) {
           console.error('GWP Debug: Error adding gifts to cart:', error);
+          
+          // Clear suppression flag even on error
+          window.gwpSuppressAutoShow = false;
+          console.log('GWP Debug: Auto-show suppression cleared due to error');
+          
           if (button) {
           button.disabled = false;
           button.textContent = \`Add to cart (\${selectedGifts.length})\`;
@@ -2370,8 +2256,17 @@ export const loader = async ({ request }) => {
       }
       
       // Update progress bar icons with selected gift images
+      let lastProgressBarUpdate = 0;
       function updateProgressBarIcons() {
         try {
+          // Rate limiting - only allow updates every 1 second
+          const now = Date.now();
+          if (now - lastProgressBarUpdate < 1000) {
+            console.log('GWP Debug: Progress bar update rate limited, skipping...');
+            return;
+          }
+          lastProgressBarUpdate = now;
+          
           console.log('GWP Debug: Updating progress bar icons with selected gifts...');
           
           if (!cartData || !cartData.items || !gwpConfig) {
@@ -2716,6 +2611,85 @@ export const loader = async ({ request }) => {
         } catch (error) {
           console.log('GWP Debug: Error updating progress bar icons:', error);
         }
+        
+        // Also update the progress bar message
+        updateProgressBarMessage();
+      }
+      
+      // Update progress bar message based on discount code conflicts
+      function updateProgressBarMessage() {
+        try {
+          const progressMessage = document.querySelector('#progress-bar-message');
+          if (!progressMessage) {
+            console.log('GWP Debug: Progress bar message element not found');
+            return;
+          }
+          
+          // Check for any discount codes that would block gift eligibility
+          const currentDiscountCodes = cartData?.discounts || [];
+          
+          // If there are any discount codes, show conflict message
+          if (currentDiscountCodes.length > 0) {
+            console.log('GWP Debug: Updating progress bar message for discount code conflict');
+            progressMessage.innerHTML = '<span style="color: #d32f2f; font-weight: bold;">🚫 Free Gifts Cannot Combine With Discount Codes</span>';
+            progressMessage.style.cursor = 'default';
+            progressMessage.onclick = null;
+            
+            // Remove any click handlers from the progress bar container
+            const progressBarContainer = document.querySelector('.custom-progress-bar-container');
+            if (progressBarContainer) {
+              progressBarContainer.style.cursor = 'default';
+              progressBarContainer.title = 'Free gifts cannot be combined with discount codes';
+              progressBarContainer.onclick = null;
+            }
+            
+            console.log('GWP Debug: Progress bar message updated to show discount code conflict');
+          } else {
+            // Check if we should restore the original message
+            const cartTotal = lastKnownCartTotal || 0;
+            const hasEligibleTiers = gwpConfig && gwpConfig.some(tier => cartTotal >= tier.thresholdAmount);
+            
+            if (hasEligibleTiers) {
+              // Find the highest eligible tier
+              const eligibleTiers = gwpConfig.filter(tier => cartTotal >= tier.thresholdAmount);
+              const highestTier = eligibleTiers.reduce((highest, tier) => 
+                tier.thresholdAmount > highest.thresholdAmount ? tier : highest
+              );
+              
+              // Check if this tier has gifts in cart
+              const tierGiftsInCart = cartData?.items?.filter(item => {
+                const hasGWPProperty = item.properties && (
+                  item.properties._gwp_tier_id === highestTier.id ||
+                  item.properties['_gwp_tier_id'] === highestTier.id ||
+                  item.properties._gift_tier_id === highestTier.id ||
+                  item.properties['_gift_tier_id'] === highestTier.id ||
+                  item.properties._gwp_tier === highestTier.name ||
+                  item.properties['_gwp_tier'] === highestTier.name
+                );
+                return hasGWPProperty;
+              }) || [];
+              
+              if (tierGiftsInCart.length === 0) {
+                // No gifts selected yet, show "Claim Now" message
+                console.log('GWP Debug: Restoring progress bar message for available tier:', highestTier.name);
+                progressMessage.innerHTML = '<span>' + highestTier.name + ' Gift</span> Earned! <span class="underline claim-now-button" style="cursor: pointer;" onclick="if(window.gwpCheckEligibility) window.gwpCheckEligibility();">Claim Now!</span>';
+                
+                // Restore click functionality
+                const progressBarContainer = document.querySelector('.custom-progress-bar-container');
+                if (progressBarContainer) {
+                  progressBarContainer.style.cursor = 'pointer';
+                  progressBarContainer.title = 'Click to choose your free gift';
+                }
+              } else {
+                // Gifts already selected, show selected message
+                console.log('GWP Debug: Updating progress bar message for selected gifts');
+                progressMessage.innerHTML = '<span>' + highestTier.name + ' Gift</span> Selected! <span class="underline" style="cursor: pointer;" onclick="if(window.gwpCheckEligibility) window.gwpCheckEligibility();">Manage Gifts</span>';
+              }
+            }
+          }
+        } catch (error) {
+          console.log('GWP Debug: Error updating progress bar message:', error);
+        }
       }
       
       // Update a single progress icon with gift image
@@ -2747,7 +2721,7 @@ export const loader = async ({ request }) => {
           
           // Method 2: Always replace the content with the gift image for progress icons
           console.log('GWP Debug: No existing img found, replacing icon content with gift image');
-          iconElement.innerHTML = \`<img src="\${imageUrl}" alt="\${giftTitle}" title="Selected gift: \${giftTitle} (\${tierName})" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; border: 2px solid #0161FE;">\`;
+          iconElement.innerHTML = '<img src="' + imageUrl + '" alt="' + giftTitle + '" title="Selected gift: ' + giftTitle + ' (' + tierName + ')" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; border: 2px solid #0161FE;">';
           console.log('GWP Debug: Successfully replaced progress icon content with gift image');
           
         } catch (error) {
@@ -2857,14 +2831,23 @@ export const loader = async ({ request }) => {
         }
         
         // Immediate eligibility check for faster auto-show response
+        let isCheckingEligibility = false;
         function immediateEligibilityCheck() {
           console.log('GWP Debug: Immediate eligibility check triggered');
+          
+          // Prevent loops - don't check if already checking
+          if (isCheckingEligibility) {
+            console.log('GWP Debug: Already checking eligibility, skipping to prevent loop');
+            return;
+          }
           
           // Don't check if modal is already open
           if (isModalOpen) {
             console.log('GWP Debug: Modal already open, skipping immediate check');
             return;
           }
+          
+          isCheckingEligibility = true;
           
           // Quick check without debouncing for faster response
           setTimeout(async () => {
@@ -2885,6 +2868,12 @@ export const loader = async ({ request }) => {
               }, 300);
             } catch (error) {
               console.log('GWP Debug: Error in immediate eligibility check:', error);
+            } finally {
+              // Reset the flag after a delay to allow for cart updates to settle
+              setTimeout(() => {
+                isCheckingEligibility = false;
+                console.log('GWP Debug: Eligibility check completed, flag reset');
+              }, 1000);
             }
           }, 200); // Very fast response
         }
@@ -3045,6 +3034,87 @@ export const loader = async ({ request }) => {
         
         // Store the interval ID for cleanup
         window.gwpPeriodicCheckInterval = periodicCheck;
+        
+        // Add cart polling as backup for missed events
+        let lastPolledItemCount = 0;
+        let lastPolledTotal = 0;
+        
+        const cartPollingInterval = setInterval(async () => {
+          try {
+            // Only poll if modal is not open to avoid interference
+            if (isModalOpen) return;
+            
+            const currentCart = await fetch('/cart.js').then(r => r.json());
+            const currentItemCount = currentCart.item_count || 0;
+            const currentTotal = currentCart.total_price || 0;
+            
+            // Check if cart has changed
+            if (currentItemCount !== lastPolledItemCount || currentTotal !== lastPolledTotal) {
+              console.log('GWP Debug: Cart change detected via polling - Items:', lastPolledItemCount, '->', currentItemCount, 'Total:', lastPolledTotal, '->', currentTotal);
+              
+              lastPolledItemCount = currentItemCount;
+              lastPolledTotal = currentTotal;
+              
+              // Update cart data and check eligibility
+              cartData = currentCart;
+              if (window.Shopify) {
+                window.Shopify.cart = currentCart;
+              }
+              
+              // Immediate eligibility check for faster response
+              immediateEligibilityCheck();
+            }
+          } catch (error) {
+            console.log('GWP Debug: Error in cart polling:', error);
+          }
+        }, 3000); // Poll every 3 seconds
+        
+        // Store polling interval for cleanup
+        window.gwpCartPollingInterval = cartPollingInterval;
+        
+        // Add discount code monitoring for immediate gift removal
+        let lastDiscountCodes = [];
+        
+        const discountCodeMonitoring = setInterval(async () => {
+          try {
+            // Only monitor if we have cart data
+            if (!cartData || !cartData.discounts) return;
+            
+            const currentDiscountCodes = cartData.discounts.map(d => d.code).sort();
+            const lastDiscountCodesStr = lastDiscountCodes.join(',');
+            const currentDiscountCodesStr = currentDiscountCodes.join(',');
+            
+            // Check if discount codes have changed
+            if (lastDiscountCodesStr !== currentDiscountCodesStr) {
+              console.log('GWP Debug: Discount codes changed - Previous:', lastDiscountCodes, 'Current:', currentDiscountCodes);
+              
+              lastDiscountCodes = [...currentDiscountCodes];
+              
+              // Check if any non-GWP discount codes were added
+              const nonGWPDiscountCodes = currentDiscountCodes.filter(code => 
+                code && (
+                  code.toUpperCase() !== 'FREE SILVER TIER GIFT!' &&
+                  code.toUpperCase() !== 'FREE GOLD TIER GIFT!'
+                )
+              );
+              
+              if (nonGWPDiscountCodes.length > 0) {
+                console.log('GWP Debug: Non-GWP discount codes detected, triggering immediate gift removal:', nonGWPDiscountCodes);
+                
+                // Immediate gift removal when discount codes are applied
+                setTimeout(async () => {
+                  await fetchCartData(); // Refresh cart data
+                  await removeIneligibleGifts(); // Remove gifts that conflict with discount codes
+                }, 500);
+              }
+            }
+          } catch (error) {
+            console.log('GWP Debug: Error in discount code monitoring:', error);
+          }
+        }, 1000); // Check every second for discount code changes
+        
+        // Store discount monitoring interval for cleanup
+        window.gwpDiscountMonitoringInterval = discountCodeMonitoring;
         
         // Also check when page becomes visible (user switches back to tab)
         document.addEventListener('visibilitychange', safeEventHandler('visibilitychange', () => {
@@ -3581,6 +3651,18 @@ export const loader = async ({ request }) => {
           if (window.gwpPeriodicCheckInterval) {
             clearInterval(window.gwpPeriodicCheckInterval);
             window.gwpPeriodicCheckInterval = null;
+          }
+          
+          // Clear cart polling interval
+          if (window.gwpCartPollingInterval) {
+            clearInterval(window.gwpCartPollingInterval);
+            window.gwpCartPollingInterval = null;
+          }
+          
+          // Clear discount monitoring interval
+          if (window.gwpDiscountMonitoringInterval) {
+            clearInterval(window.gwpDiscountMonitoringInterval);
+            window.gwpDiscountMonitoringInterval = null;
           }
           
           const modal = document.getElementById(GWP_MODAL_ID);
@@ -4821,6 +4903,20 @@ export const loader = async ({ request }) => {
           }, 500);
         });
       };
+      
+      // Expose main modal functions to global window object
+      window.showGWPModal = showGWPModal;
+      window.showGWPModalForProgressBar = showGWPModalForProgressBar;
+      window.showGWPModalForSpecificTier = showGWPModalForSpecificTier;
+      window.openGWPModal = showGWPModal; // Alias for compatibility
+      
+      console.log('GWP Debug: Modal functions exposed to window object');
+      console.log('GWP Debug: Available functions:', {
+        showGWPModal: typeof window.showGWPModal,
+        showGWPModalForProgressBar: typeof window.showGWPModalForProgressBar,
+        showGWPModalForSpecificTier: typeof window.showGWPModalForSpecificTier,
+        openGWPModal: typeof window.openGWPModal
+      });
     })();
   `;
 
