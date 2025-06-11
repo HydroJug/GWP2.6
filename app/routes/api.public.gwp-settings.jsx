@@ -148,7 +148,7 @@ export const loader = async ({ request }) => {
           id: "tier-2",
           name: "Gold",
           thresholdAmount: 12000,
-          description: "Premium gift with $120+ purchase",
+          description: "Premium gift with $100+ purchase",
           maxSelections: 1,
           giftVariantIds: ["37832337850558"],
           giftProducts: [
