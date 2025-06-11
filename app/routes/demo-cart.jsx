@@ -78,7 +78,7 @@ export const loader = async ({ request }) => {
             <h1>🎁 Gift with Purchase - Cart Modal Demo</h1>
             
             <div class="instructions">
-                <strong>📋 Instructions:</strong> Use the buttons below to simulate different cart totals. When you reach the gift threshold ($100), the congratulations modal will automatically appear!
+                <strong>📋 Instructions:</strong> Use the buttons below to simulate different cart totals. When you reach the gift threshold ($120), the congratulations modal will automatically appear!
             </div>
             
             <div class="cart-simulator">
@@ -87,15 +87,15 @@ export const loader = async ({ request }) => {
                 
                 <div class="threshold-info">
                     <strong>🎯 Gift Thresholds:</strong><br>
-                    • Tier 1: $70.00 - Choose from Can Coolers<br>
-                    • Tier 2: $100.00 - Choose from Shakers
+                    • Tier 1: $80.00 - Choose from Can Coolers<br>
+                    • Tier 2: $120.00 - Choose from Shakers
                 </div>
                 
                 <h4>Simulate Cart Changes:</h4>
                 <button class="demo-button" onclick="setCartTotal(5000)">$50.00 Cart</button>
-                <button class="demo-button" onclick="setCartTotal(7500)">$75.00 Cart</button>
-                <button class="demo-button" onclick="setCartTotal(10000)">$100.00 Cart (Trigger Modal!)</button>
-                <button class="demo-button" onclick="setCartTotal(15000)">$150.00 Cart</button>
+                <button class="demo-button" onclick="setCartTotal(7500)">$80.00 Cart</button>
+                <button class="demo-button" onclick="setCartTotal(12000)">$120.00 Cart (Trigger Modal!)</button>
+                <button class="demo-button" onclick="setCartTotal(15000)">$160.00 Cart</button>
                 <button class="demo-button secondary" onclick="setCartTotal(0)">Clear Cart</button>
             </div>
             

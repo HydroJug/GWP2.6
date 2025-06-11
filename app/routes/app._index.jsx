@@ -395,7 +395,7 @@ export default function Index() {
   const handleAddTier = useCallback(() => {
     const newTier = {
       id: `tier${Date.now()}`,
-      thresholdAmount: 10000, // $100 default
+              thresholdAmount: 12000, // $120 default
       name: `Tier ${tiers.length + 1}`,
       giftProductIds: [],
       giftProducts: [],

@@ -4,10 +4,10 @@ client_id = "cb141d9f9e2354841d444043a139da8f"
 name = "GWP-2.5"
 handle = "gwp-2-5"
 application_url = "https://gwp-2-5.vercel.app/"
-embedded = false
+embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
 include_config_on_deploy = true
 
 [webhooks]
@@ -33,4 +33,4 @@ redirect_urls = [
 ]
 
 [pos]
-embedded = false
+embedded = true

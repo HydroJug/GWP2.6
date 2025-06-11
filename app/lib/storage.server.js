@@ -24,7 +24,23 @@ export async function getGWPSettings(admin, shop) {
     const metafield = responseJson.data?.currentAppInstallation?.metafield;
     
     if (metafield?.value) {
-      return JSON.parse(metafield.value);
+      const settings = JSON.parse(metafield.value);
+      
+      // MIGRATION: Fix any old $100 Gold tier thresholds to $120 (12000 cents)
+      if (settings.tiers) {
+        settings.tiers = settings.tiers.map(tier => {
+          if (tier.thresholdAmount === 10000 && (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold'))) {
+            console.log(`Migrating ${tier.name} tier from $100 (10000) to $120 (12000)`);
+            return {
+              ...tier,
+              thresholdAmount: 12000
+            };
+          }
+          return tier;
+        });
+      }
+      
+      return settings;
     }
     
     // Return default multi-tier settings
