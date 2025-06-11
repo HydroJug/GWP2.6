@@ -446,37 +446,8 @@ export const loader = async ({ request }) => {
                           }
                         });
                         
-                        // Add a protective wrapper around cart:change to prevent theme errors
-                        setTimeout(() => {
-                          try {
-                            // Temporarily override any problematic theme functions
-                            const originalConsoleError = console.error;
-                            console.error = (...args) => {
-                              // Suppress theme section errors but log them for debugging
-                              if (args[0] && args[0].toString().includes('sections--')) {
-                                console.log('GWP Debug: Suppressed theme section error:', ...args);
-                                return;
-                              }
-                              originalConsoleError.apply(console, args);
-                            };
-                            
-                            // Dispatch cart:change with protective wrapper
-                            const changeEvent = new CustomEvent('cart:change', { 
-                              detail: compatibleDetail, 
-                              bubbles: true 
-                            });
-                            document.dispatchEvent(changeEvent);
-                            console.log('GWP Debug: Dispatched cart:change event (protected)');
-                            
-                            // Restore original console.error after a short delay
-                            setTimeout(() => {
-                              console.error = originalConsoleError;
-                            }, 1000);
-                            
-                          } catch (protectedEventError) {
-                            console.log('GWP Debug: Error in protected cart:change dispatch:', protectedEventError);
-                          }
-                        }, 100);
+                        // Skip cart:change event to prevent theme conflicts
+                        console.log('GWP Debug: Skipping cart:change event to prevent theme section errors');
                         
                       } catch (eventSectionError) {
                         console.log('GWP Debug: Error in event dispatch section:', eventSectionError);
@@ -506,13 +477,8 @@ export const loader = async ({ request }) => {
                               }
                             });
                             
-                            // Try show method to refresh drawer content
-                            if (typeof cartDrawer.show === 'function') {
-                              setTimeout(() => {
-                                cartDrawer.show();
-                                console.log('GWP Debug: Called cartDrawer.show() after removal');
-                              }, 100);
-                            }
+                            // Skip cartDrawer.show() to prevent theme conflicts
+                            console.log('GWP Debug: Skipping cartDrawer.show() to prevent theme section errors');
                             break;
                           }
                         } catch (drawerError) {
@@ -2960,9 +2926,9 @@ export const loader = async ({ request }) => {
           }, 3500);
         }));
         
-        // Listen for cart events with immediate eligibility checks
-        const cartEvents = ['cart:change', 'cart:added', 'cart:removed'];
-        cartEvents.forEach(eventName => {
+        // Listen for cart events with immediate eligibility checks (excluding problematic cart:change)
+        const safeCartEvents = ['cart:added', 'cart:removed']; // Removed 'cart:change' to prevent theme conflicts
+        safeCartEvents.forEach(eventName => {
           document.addEventListener(eventName, safeEventHandler(eventName, () => {
             // Immediate check for auto-show
             immediateEligibilityCheck();
@@ -2981,6 +2947,8 @@ export const loader = async ({ request }) => {
             }, 3500);
           }));
         });
+        
+        console.log('GWP Debug: Skipped cart:change event listener to prevent theme section conflicts');
         
         // Also listen for more cart-related events that might indicate threshold changes
         const additionalCartEvents = [
