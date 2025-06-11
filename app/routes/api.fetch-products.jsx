@@ -99,8 +99,8 @@ export const action = async ({ request }) => {
       tiers.push({
         id: "free-gift-tier-2",
         name: "Gold",
-        thresholdAmount: 10000, // $100
-        description: "Additional free gift with $100+ purchase",
+        thresholdAmount: 12000, // $120
+        description: "Additional free gift with $120+ purchase",
         maxSelections: 1,
         giftVariantIds: tier2Products.map(p => p.variantId),
         giftProducts: tier2Products

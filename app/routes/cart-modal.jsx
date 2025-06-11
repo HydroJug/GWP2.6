@@ -620,6 +620,224 @@ export const loader = async ({ request }) => {
         }
       }
       
+      // Enhanced function to check and remove ineligible gifts
+      async function removeIneligibleGifts(currentCartTotal) {
+        try {
+          console.log('GWP Debug: === CHECKING FOR INELIGIBLE GIFTS TO REMOVE ===');
+          console.log('GWP Debug: Current cart total:', currentCartTotal, 'cents ($' + (currentCartTotal / 100).toFixed(2) + ')');
+          
+          if (!gwpConfig || !Array.isArray(gwpConfig)) {
+            console.log('GWP Debug: No GWP config available, skipping removal check');
+            return;
+          }
+          
+          // Refresh cart data to get current items
+          await fetchCartData();
+          
+          if (!cartData || !cartData.items) {
+            console.log('GWP Debug: No cart data available, skipping removal check');
+            return;
+          }
+          
+          const giftsToRemove = [];
+          
+          // Find all gifts in cart
+          cartData.items.forEach(item => {
+            console.log('GWP Debug: Examining cart item:', item.title, 'properties:', item.properties);
+            
+            if (item.properties) {
+              const isGift = item.properties._gwp_gift === 'true' || 
+                            item.properties['_gwp_gift'] === 'true' ||
+                            item.properties._gift_with_purchase === 'true' ||
+                            item.properties['_gift_with_purchase'] === 'true' ||
+                            item.price === 0; // Also check for $0 items
+              
+              console.log('GWP Debug: Checking item:', item.title, 'isGift:', isGift, 'price:', item.price, 'properties:', item.properties);
+              
+              if (isGift) {
+                // Find which tier this gift belongs to
+                const tierIdProperty = item.properties._gwp_tier_id || 
+                                     item.properties['_gwp_tier_id'] ||
+                                     item.properties._gift_tier_id ||
+                                     item.properties['_gift_tier_id'];
+                                     
+                const tierNameProperty = item.properties._gwp_tier || 
+                                       item.properties['_gwp_tier'] ||
+                                       item.properties._gift_tier ||
+                                       item.properties['_gift_tier'];
+                
+                console.log('GWP Debug: Gift tier properties - ID:', tierIdProperty, 'Name:', tierNameProperty);
+                
+                // Find the tier configuration
+                let giftTier = null;
+                if (tierIdProperty) {
+                  giftTier = gwpConfig.find(tier => tier.id === tierIdProperty);
+                } else if (tierNameProperty) {
+                  giftTier = gwpConfig.find(tier => tier.name.toLowerCase() === tierNameProperty.toLowerCase());
+                }
+                
+                console.log('GWP Debug: Found matching tier:', giftTier ? giftTier.name : 'none');
+                
+                if (giftTier) {
+                  // Check if current cart total still meets this tier's threshold
+                  const isStillEligible = currentCartTotal >= giftTier.thresholdAmount;
+                  
+                  console.log('GWP Debug: Tier eligibility check - Cart total:', currentCartTotal, 'Threshold:', giftTier.thresholdAmount, 'Still eligible:', isStillEligible);
+                  
+                  if (!isStillEligible) {
+                    console.log('GWP Debug: Gift "' + item.title + '" from ' + giftTier.name + ' tier is no longer eligible');
+                    console.log('GWP Debug: Required: $' + (giftTier.thresholdAmount / 100).toFixed(2) + ', Current: $' + (currentCartTotal / 100).toFixed(2));
+                    
+                    giftsToRemove.push({
+                      key: item.key,
+                      variantId: item.variant_id,
+                      title: item.title,
+                      tierName: giftTier.name,
+                      tierThreshold: giftTier.thresholdAmount,
+                      reason: 'below_threshold'
+                    });
+                  } else {
+                    // Special case: Check for tier downgrade (e.g., from Gold to Silver)
+                    // Sort tiers by threshold (highest first) to find the highest eligible tier
+                    const sortedTiers = [...gwpConfig].sort((a, b) => b.thresholdAmount - a.thresholdAmount);
+                    const currentEligibleTier = sortedTiers.find(tier => currentCartTotal >= tier.thresholdAmount);
+                    
+                    console.log('GWP Debug: Tier downgrade check - Current eligible tier:', currentEligibleTier ? currentEligibleTier.name : 'none', 'Gift tier:', giftTier.name);
+                    
+                    // If the gift is from a higher tier than what they're currently eligible for
+                    if (currentEligibleTier && giftTier.thresholdAmount > currentEligibleTier.thresholdAmount) {
+                      console.log('GWP Debug: Gift "' + item.title + '" from ' + giftTier.name + ' tier needs to be removed due to tier downgrade');
+                      console.log('GWP Debug: Current eligible tier: ' + currentEligibleTier.name + ', Gift tier: ' + giftTier.name);
+                      
+                      giftsToRemove.push({
+                        key: item.key,
+                        variantId: item.variant_id,
+                        title: item.title,
+                        tierName: giftTier.name,
+                        tierThreshold: giftTier.thresholdAmount,
+                        reason: 'tier_downgrade',
+                        newTier: currentEligibleTier.name
+                      });
+                    }
+                  }
+                } else {
+                  console.log('GWP Debug: Could not identify tier for gift:', item.title, 'with properties:', item.properties);
+                  
+                  // If it's a gift but we can't identify the tier, and cart total is very low, remove it
+                  if (currentCartTotal < 8000) { // Below lowest Silver tier ($80)
+                    console.log('GWP Debug: Removing unidentified gift due to low cart total');
+                    giftsToRemove.push({
+                      key: item.key,
+                      variantId: item.variant_id,
+                      title: item.title,
+                      tierName: 'Unknown',
+                      tierThreshold: 8000,
+                      reason: 'unidentified_low_total'
+                    });
+                  }
+                }
+              }
+            }
+          });
+          
+          // Remove ineligible gifts
+          if (giftsToRemove.length > 0) {
+            console.log('GWP Debug: Removing ' + giftsToRemove.length + ' ineligible gifts');
+            
+            for (const gift of giftsToRemove) {
+              try {
+                const reason = gift.reason === 'tier_downgrade' 
+                  ? 'due to tier downgrade (was ' + gift.tierName + ', now eligible for ' + gift.newTier + ')'
+                  : gift.reason === 'unidentified_low_total'
+                  ? 'because it is an unidentified gift and cart total is below minimum threshold'
+                  : 'because cart total ($' + (currentCartTotal / 100).toFixed(2) + ') is below ' + gift.tierName + ' threshold ($' + (gift.tierThreshold / 100).toFixed(2) + ')';
+                
+                console.log('GWP Debug: Removing "' + gift.title + '" ' + reason);
+                
+                // Remove using Shopify Cart API
+                const response = await fetch('/cart/change.js', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    id: gift.key,
+                    quantity: 0
+                  })
+                });
+                
+                if (response.ok) {
+                  console.log('GWP Debug: Successfully removed "' + gift.title + '" from cart');
+                } else {
+                  console.error('GWP Debug: Failed to remove "' + gift.title + '":', response.status, response.statusText);
+                  
+                  // Try alternative removal method using variant ID
+                  const altResponse = await fetch('/cart/change.js', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      id: gift.variantId,
+                      quantity: 0
+                    })
+                  });
+                  
+                  if (altResponse.ok) {
+                    console.log('GWP Debug: Successfully removed "' + gift.title + '" using alternative method');
+                  } else {
+                    console.error('GWP Debug: Alternative removal also failed for "' + gift.title + '"');
+                  }
+                }
+              } catch (error) {
+                console.error('GWP Debug: Error removing gift "' + gift.title + '":', error);
+              }
+            }
+            
+            // Wait a moment and refresh cart data
+            setTimeout(async () => {
+              await fetchCartData();
+              console.log('GWP Debug: Cart data refreshed after gift removal');
+              
+              // Trigger cart UI updates
+              if (window.Shopify && window.Shopify.onCartUpdate) {
+                window.Shopify.onCartUpdate(cartData);
+              }
+              
+              // Trigger custom events that themes might listen to
+              document.dispatchEvent(new CustomEvent('cart:updated', { detail: cartData }));
+              document.dispatchEvent(new CustomEvent('cartupdate', { detail: cartData }));
+              document.dispatchEvent(new CustomEvent('cart:change', { detail: cartData }));
+            }, 500);
+            
+          } else {
+            console.log('GWP Debug: No ineligible gifts found to remove');
+          }
+          
+          console.log('GWP Debug: === FINISHED CHECKING FOR INELIGIBLE GIFTS ===');
+          
+        } catch (error) {
+          console.error('GWP Debug: Error in removeIneligibleGifts:', error);
+        }
+      }
+
+      // Enhanced cart monitoring with more aggressive gift removal checks
+      async function performCartThresholdCheck() {
+        try {
+          const currentTotal = await getCartTotal();
+          console.log('GWP Debug: Performing cart threshold check - Current total: $' + (currentTotal / 100).toFixed(2));
+          
+          // Always check for ineligible gifts regardless of total changes
+          await removeIneligibleGifts(currentTotal);
+          
+          // Update last known total
+          lastKnownCartTotal = currentTotal;
+          
+        } catch (error) {
+          console.error('GWP Debug: Error in cart threshold check:', error);
+        }
+      }
+      
       // Get cart total with improved error handling and multiple methods
       async function getCartTotal() {
         let total = 0;
@@ -1523,12 +1741,12 @@ export const loader = async ({ request }) => {
                   } else if (iconThresholdAmount === 7000) { // $70 - Legacy fallback, treat as Silver
                     isGiftTier = true;
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 8000); // Map to $80 Silver tier
-                  } else if (iconThresholdAmount === 10000) { // $100 Gold
+                  } else if (iconThresholdAmount === 10000) { // $100 Gold (legacy)
                     isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 10000);
-                  } else if (iconThresholdAmount === 12000) { // $120 Gold (updated threshold)
+                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 12000); // Map to new $120 Gold tier
+                  } else if (iconThresholdAmount === 12000) { // $120 Gold (current threshold)
                     isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 10000); // Still maps to $100 Gold tier config
+                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 12000);
                   } else {
                     // Check if this threshold matches any configured gift tier
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === iconThresholdAmount);
@@ -2041,14 +2259,14 @@ export const loader = async ({ request }) => {
                     isGiftTier = true;
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 8000); // Map to $80 Silver tier
                     console.log('GWP Debug: This is the legacy $70 icon, treating as $80 Silver tier', matchingTier);
-                  } else if (iconThresholdAmount === 10000) { // $100
-                    isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 10000);
-                    console.log('GWP Debug: This is the $100 gift tier (Gold)', matchingTier);
-                  } else if (iconThresholdAmount === 12000) { // $120
-                    isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 10000); // Still maps to $100 Gold tier config
-                    console.log('GWP Debug: This is the $120 gift tier (Gold)', matchingTier);
+                                  } else if (iconThresholdAmount === 10000) { // $100 (legacy)
+                  isGiftTier = true;
+                  matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 12000); // Map to new $120 Gold tier
+                  console.log('GWP Debug: This is the legacy $100 icon, treating as $120 Gold tier', matchingTier);
+                } else if (iconThresholdAmount === 12000) { // $120
+                  isGiftTier = true;
+                  matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 12000);
+                  console.log('GWP Debug: This is the $120 gift tier (Gold)', matchingTier);
                   } else {
                     // Check if this threshold matches any configured gift tier
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === iconThresholdAmount);
@@ -2312,7 +2530,7 @@ export const loader = async ({ request }) => {
         
         // Wrap event handlers in try-catch to prevent theme conflicts
         function safeEventHandler(eventName, handler) {
-          return function(event) {
+          return async function(event) {
             try {
               // Skip events that come from theme handlers to avoid conflicts
               if (event.detail && event.detail.source === 'theme') {
@@ -2321,7 +2539,7 @@ export const loader = async ({ request }) => {
               }
               
               console.log('GWP Debug: Cart event detected:', eventName, event);
-              handler();
+              await handler();
             } catch (error) {
               console.log('GWP Debug: Error handling', eventName, 'event:', error);
             }
@@ -2329,7 +2547,12 @@ export const loader = async ({ request }) => {
         }
         
         // Listen for Shopify cart events - with immediate checks for auto-show
-        document.addEventListener('cart:updated', safeEventHandler('cart:updated', () => {
+        document.addEventListener('cart:updated', safeEventHandler('cart:updated', async () => {
+          console.log('GWP Debug: Cart updated detected, checking for gift removal...');
+          
+          // Enhanced threshold check that always runs
+          await performCartThresholdCheck();
+          
           // Immediate check for auto-show
           immediateEligibilityCheck();
           
@@ -2350,7 +2573,12 @@ export const loader = async ({ request }) => {
         // Listen for cart events with immediate eligibility checks
         const cartEvents = ['cart:change', 'cart:added', 'cart:removed'];
         cartEvents.forEach(eventName => {
-          document.addEventListener(eventName, safeEventHandler(eventName, () => {
+          document.addEventListener(eventName, safeEventHandler(eventName, async () => {
+            console.log('GWP Debug: Cart event detected (' + eventName + '), checking for gift removal...');
+            
+            // Enhanced threshold check that always runs
+            await performCartThresholdCheck();
+            
             // Immediate check for auto-show
             immediateEligibilityCheck();
             
@@ -2381,8 +2609,12 @@ export const loader = async ({ request }) => {
         ];
         
         additionalCartEvents.forEach(eventName => {
-          document.addEventListener(eventName, safeEventHandler(eventName, () => {
+          document.addEventListener(eventName, safeEventHandler(eventName, async () => {
             console.log('GWP Debug: Additional cart event detected:', eventName);
+            
+            // Enhanced threshold check for all additional events
+            await performCartThresholdCheck();
+            
             immediateEligibilityCheck();
           }));
         });
@@ -2451,6 +2683,13 @@ export const loader = async ({ request }) => {
               if (Math.abs(currentTotal - lastKnownCartTotal) > 100) { // More than $1 change
                 console.log('GWP Debug: Cart total changed significantly, checking eligibility');
                 console.log('GWP Debug: Previous total:', lastKnownCartTotal, 'Current total:', currentTotal);
+                
+                // Check if cart total decreased (might need to remove gifts)
+                if (currentTotal < lastKnownCartTotal) {
+                  console.log('GWP Debug: Cart total decreased, checking for gifts to remove');
+                  await removeIneligibleGifts(currentTotal);
+                }
+                
                 lastKnownCartTotal = currentTotal;
                 
                 // Check eligibility
@@ -4005,8 +4244,8 @@ export const loader = async ({ request }) => {
           if (threshold === 80 || threshold === 70) { // Handle both $80 and legacy $70 as Silver tier
             console.log('GWP Debug: Updating $' + threshold + ' icon with Silver tier gift');
             updateProgressIcon(icon, sampleGifts.tier1.image, sampleGifts.tier1.title, sampleGifts.tier1.tierName);
-          } else if (threshold === 100) {
-            console.log('GWP Debug: Updating $100 icon with Gold tier gift');
+          } else if (threshold === 100 || threshold === 120) {
+            console.log('GWP Debug: Updating $' + threshold + ' icon with Gold tier gift');
             updateProgressIcon(icon, sampleGifts.tier2.image, sampleGifts.tier2.title, sampleGifts.tier2.tierName);
           } else {
             console.log(\`GWP Debug: Skipping icon with threshold $\${threshold} (not a gift tier)\`);
@@ -4086,7 +4325,7 @@ export const loader = async ({ request }) => {
               } else if (thresholdAmount === 7000) {
                 console.log(\`GWP Debug: Icon \${index} matches legacy $70 tier (treating as Silver)\`);
               } else if (thresholdAmount === 12000) {
-                console.log(\`GWP Debug: Icon \${index} matches $100 tier (Gold)\`);
+                console.log(\`GWP Debug: Icon \${index} matches $120 tier (Gold)\`);
               } else {
                 console.log(\`GWP Debug: Icon \${index} does not match gift tiers\`);
               }
@@ -4171,6 +4410,14 @@ export const loader = async ({ request }) => {
         }
       };
       
+      // Enhanced function to manually trigger gift removal check
+      window.gwpRemoveIneligibleGifts = async function() {
+        console.log('GWP Debug: === MANUAL GIFT REMOVAL CHECK ===');
+        const currentTotal = await getCartTotal();
+        await removeIneligibleGifts(currentTotal);
+        console.log('GWP Debug: === MANUAL GIFT REMOVAL CHECK COMPLETE ===');
+      };
+
       // Enhanced function to check what gifts are actually in the cart
       window.gwpCheckCartGifts = function() {
         console.log('GWP Debug: === CHECKING CART GIFTS ===');
@@ -4234,6 +4481,150 @@ export const loader = async ({ request }) => {
           }, 500);
         });
       };
+
+        // Set up periodic monitoring as a backup in case events don't fire
+        cartMonitorInterval = setInterval(async () => {
+          try {
+            console.log('GWP Debug: Periodic cart monitoring - checking for ineligible gifts');
+            
+            // Get current cart total
+            const currentTotal = await getCartTotal();
+            
+            // Only run removal check if there's actually a cart with items
+            if (currentTotal > 0 && cartData && cartData.items && cartData.items.length > 0) {
+              // Check if there are any gifts in the cart
+              const hasGifts = cartData.items.some(item => {
+                return item.properties && (
+                  item.properties._gwp_gift === 'true' || 
+                  item.properties['_gwp_gift'] === 'true' ||
+                  item.properties._gift_with_purchase === 'true' ||
+                  item.properties['_gift_with_purchase'] === 'true' ||
+                  item.price === 0
+                );
+              });
+              
+              if (hasGifts) {
+                console.log('GWP Debug: Gifts found in cart during periodic check, validating eligibility');
+                await removeIneligibleGifts(currentTotal);
+              }
+            }
+            
+          } catch (error) {
+            console.log('GWP Debug: Error in periodic cart monitoring:', error);
+          }
+        }, 3000); // Check every 3 seconds
+        
+        console.log('GWP Debug: Periodic cart monitoring set up with interval:', cartMonitorInterval);
+
+        // Add more aggressive monitoring for cart changes
+        let lastCartItemCount = 0;
+        let lastCartTotalValue = 0;
+        
+        // Watch for changes in cart content
+        const aggressiveCartMonitor = setInterval(async () => {
+          try {
+            const currentTotal = await getCartTotal();
+            let currentItemCount = 0;
+            
+            if (cartData && cartData.items) {
+              currentItemCount = cartData.items.length;
+            }
+            
+            // If cart total or item count changed, check for gift removal
+            if (currentTotal !== lastCartTotalValue || currentItemCount !== lastCartItemCount) {
+              console.log('GWP Debug: Aggressive monitor detected cart change - Total:', currentTotal, 'Items:', currentItemCount);
+              console.log('GWP Debug: Previous - Total:', lastCartTotalValue, 'Items:', lastCartItemCount);
+              
+              // If total decreased or items removed, aggressively check for gift removal
+              if (currentTotal < lastCartTotalValue || currentItemCount < lastCartItemCount) {
+                console.log('GWP Debug: Cart decreased, triggering gift removal check');
+                await performCartThresholdCheck();
+              }
+              
+              lastCartTotalValue = currentTotal;
+              lastCartItemCount = currentItemCount;
+            }
+            
+          } catch (error) {
+            console.log('GWP Debug: Error in aggressive cart monitoring:', error);
+          }
+        }, 1000); // Check every 1 second for more responsive removal
+        
+        console.log('GWP Debug: Aggressive cart monitoring set up');
+
+        // Monitor for changes in cart drawer elements
+        const observeCartChanges = () => {
+          const cartObserverSelectors = [
+            '.cart-drawer',
+            '.cart-popup',
+            '[data-cart-drawer]',
+            '.js-cart-drawer',
+            '#cart-drawer',
+            '.drawer--cart'
+          ];
+          
+          cartObserverSelectors.forEach(selector => {
+            const element = document.querySelector(selector);
+            if (element) {
+              console.log('GWP Debug: Setting up MutationObserver for:', selector);
+              
+              const observer = new MutationObserver((mutations) => {
+                let shouldCheck = false;
+                
+                mutations.forEach((mutation) => {
+                  // Check for added or removed nodes that might be cart items
+                  if (mutation.type === 'childList') {
+                    const hasCartItemChanges = Array.from(mutation.addedNodes).some(node => 
+                      node.nodeType === 1 && (
+                        node.classList?.contains('cart-item') ||
+                        node.classList?.contains('cart__item') ||
+                        node.querySelector?.('.cart-item') ||
+                        node.querySelector?.('.cart__item')
+                      )
+                    ) || Array.from(mutation.removedNodes).some(node => 
+                      node.nodeType === 1 && (
+                        node.classList?.contains('cart-item') ||
+                        node.classList?.contains('cart__item')
+                      )
+                    );
+                    
+                    if (hasCartItemChanges) {
+                      shouldCheck = true;
+                    }
+                  }
+                });
+                
+                if (shouldCheck) {
+                  console.log('GWP Debug: Cart DOM changes detected, triggering gift removal check');
+                  setTimeout(async () => {
+                    await performCartThresholdCheck();
+                  }, 500);
+                }
+              });
+              
+              observer.observe(element, {
+                childList: true,
+                subtree: true
+              });
+            }
+          });
+        };
+        
+        // Set up DOM observers after a delay to ensure cart is loaded
+        setTimeout(observeCartChanges, 2000);
+
+        // Function to manually trigger gift removal check - can be called from console for testing
+        window.manualGiftRemovalCheck = async function() {
+          console.log('GWP Debug: Manual gift removal check triggered');
+          await performCartThresholdCheck();
+        };
+
+        // Direct function to manually remove ineligible gifts - for immediate testing
+        window.directRemoveIneligibleGifts = async function() {
+          console.log('GWP Debug: Direct manual gift removal triggered');
+          const currentTotal = await getCartTotal();
+          await removeIneligibleGifts(currentTotal);
+        };
     })();
   `;
 

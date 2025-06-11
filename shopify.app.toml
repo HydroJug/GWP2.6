@@ -3,12 +3,12 @@
 client_id = "cb141d9f9e2354841d444043a139da8f"
 name = "GWP-2.5"
 handle = "gwp-2-5"
-application_url = "https://sub-canada-cp-unavailable.trycloudflare.com"
-embedded = true
+application_url = "https://gwp-2-5.vercel.app/"
+embedded = false
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
+include_config_on_deploy = true
 
 [webhooks]
 api_version = "2025-04"
@@ -23,13 +23,13 @@ api_version = "2025-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products"
+scopes = "write_products,read_products,write_cart_transforms"
 
 [auth]
 redirect_urls = [
-  "https://sub-canada-cp-unavailable.trycloudflare.com/auth/callback",
-  "https://sub-canada-cp-unavailable.trycloudflare.com/auth/shopify/callback",
-  "https://sub-canada-cp-unavailable.trycloudflare.com/api/auth/callback"
+  "https://gwp-2-5.vercel.app/auth/callback",
+  "https://gwp-2-5.vercel.app/auth/shopify/callback",
+  "https://gwp-2-5.vercel.app/api/auth/callback"
 ]
 
 [pos]

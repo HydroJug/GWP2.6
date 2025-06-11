@@ -325,6 +325,146 @@ function Extension() {
     setLastCartTotal(cartTotal);
   }, [cartTotal, availableTiers, configLoading]);
 
+  // Auto-remove gifts when cart total drops below tier thresholds
+  useEffect(() => {
+    if (configLoading || availableTiers.length === 0) return;
+
+    const removeIneligibleGifts = async () => {
+      const giftsToRemove = [];
+      
+      console.log('Checkout Extension: Checking for ineligible gifts to remove');
+      console.log('Checkout Extension: Current cart total:', cartTotal, 'cents ($' + (cartTotal/100).toFixed(2) + ')');
+      console.log('Checkout Extension: Existing gifts in cart:', existingGifts.length);
+      
+      // Check each gift in cart for eligibility
+      for (const line of existingGifts) {
+        const attributes = line.attributes || [];
+        
+        console.log('Checkout Extension: Checking gift:', line.merchandise.title, 'attributes:', attributes);
+        
+        // Find the tier ID for this gift
+        const tierIdAttr = attributes.find(attr => 
+          attr.key === '_gift_tier_id' || attr.key === '_gwp_tier_id'
+        );
+        
+        if (tierIdAttr) {
+          const giftTierId = tierIdAttr.value;
+          
+          console.log('Checkout Extension: Gift tier ID:', giftTierId);
+          
+          // Find the tier configuration
+          const giftTier = availableTiers.find(tier => tier.id === giftTierId);
+          
+          if (giftTier) {
+            console.log('Checkout Extension: Found matching tier:', giftTier.name, 'threshold:', giftTier.thresholdAmount);
+            
+            // Check if cart total is still above this tier's threshold
+            const isStillEligible = cartTotal >= giftTier.thresholdAmount;
+            
+            console.log('Checkout Extension: Gift still eligible:', isStillEligible);
+            
+            if (!isStillEligible) {
+              console.log(`Checkout Extension: Gift from tier ${giftTier.name} (${giftTierId}) is no longer eligible. Cart total: $${(cartTotal/100).toFixed(2)}, Required: $${(giftTier.thresholdAmount/100).toFixed(2)}`);
+              giftsToRemove.push({
+                lineId: line.id,
+                tierName: giftTier.name,
+                productTitle: line.merchandise.title,
+                tierThreshold: giftTier.thresholdAmount
+              });
+            } else {
+              // Special case: Check for tier downgrade (e.g., from Gold to Silver)
+              // If they have a Gold tier gift but cart total is only eligible for Silver
+              const sortedTiers = [...availableTiers].sort((a, b) => b.thresholdAmount - a.thresholdAmount);
+              const currentEligibleTier = sortedTiers.find(tier => cartTotal >= tier.thresholdAmount);
+              
+              console.log('Checkout Extension: Checking tier downgrade - Current eligible tier:', currentEligibleTier ? currentEligibleTier.name : 'none');
+              
+              // If the gift is from a higher tier than what they're currently eligible for
+              if (currentEligibleTier && giftTier.thresholdAmount > currentEligibleTier.thresholdAmount) {
+                console.log(`Checkout Extension: Gift from tier ${giftTier.name} needs to be removed due to tier downgrade. Current eligible tier: ${currentEligibleTier.name}`);
+                giftsToRemove.push({
+                  lineId: line.id,
+                  tierName: giftTier.name,
+                  productTitle: line.merchandise.title,
+                  tierThreshold: giftTier.thresholdAmount,
+                  reason: 'tier_downgrade'
+                });
+              }
+            }
+          } else {
+            console.log('Checkout Extension: Could not find tier configuration for ID:', giftTierId);
+          }
+        } else {
+          console.log('Checkout Extension: Gift has no tier ID, checking if it should be removed due to low cart total');
+          
+          // If it's a gift but we can't identify the tier, and cart total is very low, remove it
+          if (cartTotal < 8000) { // Below lowest Silver tier ($80)
+            console.log('Checkout Extension: Removing unidentified gift due to low cart total');
+            giftsToRemove.push({
+              lineId: line.id,
+              tierName: 'Unknown',
+              productTitle: line.merchandise.title,
+              tierThreshold: 8000,
+              reason: 'unidentified_low_total'
+            });
+          }
+        }
+      }
+      
+      // Remove ineligible gifts
+      if (giftsToRemove.length > 0) {
+        console.log(`Checkout Extension: Removing ${giftsToRemove.length} ineligible gifts`);
+        
+        for (const gift of giftsToRemove) {
+          try {
+            const reason = gift.reason === 'tier_downgrade' 
+              ? `due to tier downgrade (was ${gift.tierName}, now below $${(gift.tierThreshold/100).toFixed(2)} threshold)`
+              : gift.reason === 'unidentified_low_total'
+              ? 'because it is an unidentified gift and cart total is below minimum threshold'
+              : `because cart total ($${(cartTotal/100).toFixed(2)}) is below ${gift.tierName} threshold ($${(gift.tierThreshold/100).toFixed(2)})`;
+              
+            console.log(`Checkout Extension: Removing ineligible gift: ${gift.productTitle} from ${gift.tierName} tier ${reason}`);
+            
+            const result = await applyCartLinesChange({
+              type: 'removeCartLine',
+              id: gift.lineId,
+            });
+            
+            if (result.type === 'success') {
+              console.log(`Checkout Extension: Successfully removed ${gift.productTitle} from cart`);
+              
+              // Clear from selected gifts state to allow re-selection later
+              const giftKey = Object.keys(selectedGifts).find(key => 
+                key.includes(gift.tierName.toLowerCase()) || 
+                key.includes(gift.productTitle.toLowerCase())
+              );
+              if (giftKey) {
+                setSelectedGifts(prev => {
+                  const updated = { ...prev };
+                  delete updated[giftKey];
+                  return updated;
+                });
+              }
+            } else {
+              console.error(`Checkout Extension: Failed to remove ${gift.productTitle}:`, result);
+            }
+          } catch (error) {
+            console.error(`Checkout Extension: Error removing gift ${gift.productTitle}:`, error);
+          }
+        }
+      } else {
+        console.log('Checkout Extension: No ineligible gifts found to remove');
+      }
+    };
+
+    // Run removal check if cart total has decreased OR if there are gifts in cart (more aggressive checking)
+    if ((cartTotal < lastCartTotal && existingGifts.length > 0) || (existingGifts.length > 0 && cartTotal < 8000)) {
+      console.log('Checkout Extension: Running gift removal check - Cart total decreased or gifts present with low total');
+      // Small delay to ensure cart has finished updating
+      setTimeout(removeIneligibleGifts, 300);
+    }
+  }, [cartTotal, lastCartTotal, existingGifts, availableTiers, configLoading, applyCartLinesChange, selectedGifts]);
+
   // Get existing gift items in cart
   const existingGifts = cartLines.filter(line => 
     line.attributes.some(attr => 

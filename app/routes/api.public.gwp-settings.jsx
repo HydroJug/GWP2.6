@@ -147,8 +147,8 @@ export const loader = async ({ request }) => {
         {
           id: "tier-2",
           name: "Gold",
-          thresholdAmount: 10000,
-          description: "Premium gift with $100+ purchase",
+          thresholdAmount: 12000,
+          description: "Premium gift with $120+ purchase",
           maxSelections: 1,
           giftVariantIds: ["37832337850558"],
           giftProducts: [
@@ -191,7 +191,7 @@ export const loader = async ({ request }) => {
         {
           id: "tier1748560909690",
           name: "Gold",
-          thresholdAmount: 10000, // $100
+          thresholdAmount: 12000, // $120
           description: "Choose 1 free gift",
           maxSelections: 1,
           collectionId: "306545000505", // GWP Tier 2 collection
@@ -239,7 +239,7 @@ export const loader = async ({ request }) => {
         {
           id: "tier1748560909690",
           name: "Gold",
-          thresholdAmount: 10000,
+          thresholdAmount: 12000,
           description: "Choose 1 free gift",
           maxSelections: 1,
           collectionId: "306545000505", // GWP Tier 2 collection
