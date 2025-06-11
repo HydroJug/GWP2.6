@@ -3572,6 +3572,9 @@ export const loader = async ({ request }) => {
         }
       };
       
+      // Track progress bar clicks to detect when we should force-show
+      let lastProgressBarClick = 0;
+      
       // Create a global function to manually trigger eligibility check
       window.gwpCheckEligibility = function() {
         // Prevent loops during removal process
@@ -3587,9 +3590,22 @@ export const loader = async ({ request }) => {
           return;
         }
         
-        console.log('GWP Debug: Manual eligibility check triggered');
+        try {
+          const stack = (new Error()).stack;
+          const caller = stack ? stack.split('\n')[2] || 'unknown' : 'unknown';
+          console.log('GWP Debug: Manual eligibility check triggered - called from:', caller);
+        } catch (e) {
+          console.log('GWP Debug: Manual eligibility check triggered - called from: unknown');
+        }
         lastRemovalCheck = now;
-        setTimeout(checkGiftEligibility, 100);
+        
+        // Check if this was triggered by a recent progress bar click (within 2 seconds)
+        if (now - lastProgressBarClick < 2000) {
+          console.log('GWP Debug: Recent progress bar click detected, showing progress bar modal instead');
+          setTimeout(showGWPModalForProgressBar, 100);
+        } else {
+          setTimeout(checkGiftEligibility, 100);
+        }
       };
       
       // Create a global function to clear all dismissal flags for testing
@@ -3700,6 +3716,7 @@ export const loader = async ({ request }) => {
                 variant_id: itemToRemove.variant_id,
                 title: itemToRemove.title
               });
+            }
           } else {
               console.log('GWP Debug: Cart item not found for removal:', cartItemKey);
               console.log('GWP Debug: Available cart items:', cartData.items.map(item => ({
@@ -3749,8 +3766,8 @@ export const loader = async ({ request }) => {
             setTimeout(() => {
               if (wasMonitoringActive) {
                 setupCartMonitoring();
-          }
-        }, 2000);
+              }
+            }, 2000);
             
           } else {
             const errorText = await response.text();
@@ -4067,6 +4084,9 @@ export const loader = async ({ request }) => {
       // Progress bar click handler function
       function progressBarClickHandler() {
         console.log('GWP Debug: Progress bar clicked, forcing modal to show');
+        
+        // Mark this as a progress bar click for gwpCheckEligibility detection
+        lastProgressBarClick = Date.now();
         
         // Clear any dismissal flags temporarily
         const wasDismissed = sessionStorage.getItem('gwp_modal_dismissed');
@@ -5272,6 +5292,20 @@ export const loader = async ({ request }) => {
       };
       window.gwpDebugEligibility = checkAndRemoveIneligibleGifts;
 
+      // Create a dedicated progress bar click function that's called by the theme
+      window.gwpProgressBarClick = function() {
+        console.log('GWP Debug: gwpProgressBarClick called - forcing progress bar modal');
+        lastProgressBarClick = Date.now();
+        
+        // Clear any dismissal flags
+        sessionStorage.removeItem('gwp_modal_dismissed');
+        sessionStorage.removeItem('gwp_modal_dismissed_time');
+        sessionStorage.removeItem('gwp_modal_dismissal_type');
+        
+        // Force show progress bar modal immediately
+        setTimeout(showGWPModalForProgressBar, 100);
+      };
+      
       // EXPOSE MODAL FUNCTIONS GLOBALLY - This is what the progress bar is looking for!
       window.showGWPModal = showGWPModal;
       window.showGWPModalForProgressBar = showGWPModalForProgressBar;
@@ -5281,16 +5315,17 @@ export const loader = async ({ request }) => {
         showGWPModal: typeof window.showGWPModal,
         showGWPModalForProgressBar: typeof window.showGWPModalForProgressBar,
         showGWPModalForSpecificTier: typeof window.showGWPModalForSpecificTier,
-        openGWPModal: typeof window.openGWPModal
+        openGWPModal: typeof window.openGWPModal,
+        gwpProgressBarClick: typeof window.gwpProgressBarClick
       });
 
       // =============================================================================
-      // GWP CART MODAL - VERSION 2024-01-19-PROGRESS-FIX - PROGRESS BAR FORCE SHOW
+      // GWP CART MODAL - VERSION 2024-01-19-PROGRESS-DEBUG - PROGRESS BAR CALL DETECTION
       // =============================================================================
-      console.log('🎁🎁🎁 GWP Cart Modal v2024-01-19-PROGRESS-FIX LOADED - Progress Bar Force Show + Loop Prevention 🎁🎁🎁');
+      console.log('🎁🎁🎁 GWP Cart Modal v2024-01-19-PROGRESS-DEBUG LOADED - Progress Bar Call Detection 🎁🎁🎁');
       console.log('🎁 Timestamp:', new Date().toISOString());
       console.log('🎁 Cache Bust: NO-CACHE HEADERS ACTIVE');
-      console.log('🎁 Features: Progress Bar Shows Next Tier, Loop Prevention, Gift Removal, UI Refresh');
+      console.log('🎁 Features: Call Stack Detection, Smart Progress Bar Detection, Loop Prevention');
     })();
   `;
 
