@@ -137,7 +137,7 @@ function Extension() {
         console.log('Final shop domain to use:', finalShopDomain);
         
         // Fetch configuration from our public API endpoint
-        const apiUrl = `https://gwp-2-0.vercel.app/api/public/gwp-settings?shop=${encodeURIComponent(finalShopDomain)}`;
+        const apiUrl = `https://gwp-2-5-hxluwv1gv-hydrojug.vercel.app/api/public/gwp-settings?shop=${encodeURIComponent(finalShopDomain)}`;
           
         console.log('Fetching GWP configuration from:', apiUrl);
         
