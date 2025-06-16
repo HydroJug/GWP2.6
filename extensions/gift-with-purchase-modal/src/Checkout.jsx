@@ -61,258 +61,100 @@ function Extension() {
   const hasAnyDiscountCodes = appliedDiscountCodes.length > 0;
   const showDiscountWarning = hasGWPItems && hasAnyDiscountCodes;
 
-  // Debug logging for discount codes and GWP items
-  useEffect(() => {
-    console.log('GWP Extension Debug:', {
-      hasGWPItems,
-      hasAnyDiscountCodes,
-      showDiscountWarning,
-      discountCodes: discountCodes?.map(code => code.code || code) || [],
-      cartLinesWithAttributes: cartLines.map(line => ({
-        id: line.id,
-        title: line.merchandise.title,
-        attributes: line.attributes,
-        price: line.cost.totalAmount.amount
-      }))
-    });
-  }, [hasGWPItems, hasAnyDiscountCodes, showDiscountWarning, discountCodes, cartLines]);
-
-  // Fetch tier configuration from our API
-  useEffect(() => {
-    const fetchTierConfig = async () => {
-      try {
-        setConfigLoading(true);
-        setConfigError(null);
-        
-        // Try multiple methods to get the shop domain
-        let shopDomain = null;
-        
-        // Method 1: extension.shop.myshopifyDomain
-        if (extension?.shop?.myshopifyDomain) {
-          shopDomain = extension.shop.myshopifyDomain;
-          console.log('Shop domain detected via extension.shop.myshopifyDomain:', shopDomain);
-        }
-        
-        // Method 2: extension.shop.domain
-        if (!shopDomain && extension?.shop?.domain) {
-          shopDomain = extension.shop.domain;
-          console.log('Shop domain detected via extension.shop.domain:', shopDomain);
-        }
-        
-        // Method 3: extension.target.shop.domain
-        if (!shopDomain && extension?.target?.shop?.domain) {
-          shopDomain = extension.target.shop.domain;
-          console.log('Shop domain detected via extension.target.shop.domain:', shopDomain);
-        }
-        
-        // Method 4: extension.environment.shop
-        if (!shopDomain && extension?.environment?.shop) {
-          shopDomain = extension.environment.shop;
-          console.log('Shop domain detected via extension.environment.shop:', shopDomain);
-        }
-        
-        // Log all available extension properties for debugging
-        console.log('Full extension object:', extension);
-        console.log('Extension.shop:', extension?.shop);
-        console.log('Extension.target:', extension?.target);
-        console.log('Extension.environment:', extension?.environment);
-        
-        // Fallback to main production site instead of development site
-        const finalShopDomain = shopDomain || 'hydrojug.myshopify.com';
-        
-        console.log('Final shop domain to use:', finalShopDomain);
-        
-        // Fetch configuration from our public API endpoint
-        const apiUrl = `https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=${encodeURIComponent(finalShopDomain)}`;
-          
-        console.log('Fetching GWP configuration from:', apiUrl);
-        
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          console.error('Failed to fetch GWP configuration:', {
-            status: response.status,
-            statusText: response.statusText,
-            url: apiUrl
-          });
-          
-          try {
-            const errorText = await response.text();
-            console.error('Error response body:', errorText);
-          } catch (textError) {
-            console.error('Could not read error response:', textError);
-          }
-          
-          throw new Error(`Failed to fetch configuration: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('Received GWP configuration:', data);
-        
-        // Parse tiers from the response
-        let tiers = [];
-        if (data.tiers) {
-          try {
-            tiers = typeof data.tiers === 'string' ? JSON.parse(data.tiers) : data.tiers;
-            
-            // For collection-based tiers, we need to fetch products from the collections
-            for (let tier of tiers) {
-              if (tier.collectionHandle && (!tier.giftProducts || tier.giftProducts.length === 0)) {
-                console.log(`Fetching products from collection: ${tier.collectionHandle}`);
-                
-                try {
-                  // Fetch products from the collection using Shopify's public API
-                  const collectionUrl = `https://${finalShopDomain}/collections/${tier.collectionHandle}/products.json?limit=10`;
-                  const collectionResponse = await fetch(collectionUrl);
-                  
-                  if (collectionResponse.ok) {
-                    const collectionData = await collectionResponse.json();
-                    console.log(`Found ${collectionData.products?.length || 0} products in collection ${tier.collectionHandle}`);
-                    
-                    // Convert products to the format we need - expand all variants
-                    const allProducts = collectionData.products?.slice(0, 10) || [];
-                    const allVariants = [];
-                    
-                    allProducts.forEach(product => {
-                      if (!product.variants || !Array.isArray(product.variants)) {
-                        console.log(`Product has no variants: ${product.title}`);
-                        return;
-                      }
-                      
-                      // Filter available variants
-                      const availableVariants = product.variants.filter(variant => {
-                        const isAvailable = variant && variant.available;
-                        console.log(`Variant ${variant.title} of ${product.title} available: ${isAvailable}`);
-                        return isAvailable;
-                      });
-                      
-                      // Convert each variant to a selectable option
-                      availableVariants.forEach(variant => {
-                        // Use variant-specific image if available, otherwise fall back to product image
-                        let variantImage = null;
-                        
-                        // Try to find variant-specific image
-                        if (variant.featured_image) {
-                          variantImage = variant.featured_image.src || variant.featured_image;
-                        } else if (variant.image_id && product.images) {
-                          const matchingImage = product.images.find(img => img.id === variant.image_id);
-                          if (matchingImage) {
-                            variantImage = matchingImage.src;
-                          }
-                        }
-                        
-                        // Fall back to product's featured image or first image
-                        if (!variantImage) {
-                          variantImage = product.images?.[0]?.src || product.featured_image || `https://via.placeholder.com/150x150/cccccc/666666?text=${encodeURIComponent(product.title)}`;
-                        }
-                        
-                        // Create a display title that includes both product and variant info
-                        let displayTitle = product.title;
-                        if (variant.title && variant.title !== 'Default Title' && variant.title !== product.title) {
-                          // If variant has a meaningful title, append it
-                          displayTitle = `${product.title} - ${variant.title}`;
-                        }
-                        
-                        allVariants.push({
-                          variantId: variant.id.toString(),
-                          productId: product.id.toString(),
-                          title: displayTitle,
-                          productTitle: product.title,
-                          variantTitle: variant.title,
-                          image: variantImage,
-                          price: "0.00" // Will be set to $0 by cart transform
-                        });
-                        
-                        console.log(`Added variant option: ${displayTitle} (${variant.id})`);
-                      });
-                    });
-                    
-                    // Limit to reasonable number of options (12 variants max)
-                    const giftProducts = allVariants.slice(0, 12);
-                    
-                    console.log(`Filtered to ${giftProducts.length} available variants from ${allProducts.length} total products in collection ${tier.collectionHandle}`);
-                    
-                    // Update the tier with the fetched products
-                    tier.giftProducts = giftProducts;
-                    tier.giftVariantIds = giftProducts.map(p => p.variantId);
-                    
-                    console.log(`Updated tier ${tier.id} with ${giftProducts.length} products from collection`);
-                    
-                    // Log each product's image URL for debugging
-                    giftProducts.forEach(product => {
-                      console.log(`Product: ${product.title}, Image: ${product.image}`);
-                    });
-                  } else {
-                    console.error(`Failed to fetch collection ${tier.collectionHandle}:`, collectionResponse.status);
-                  }
-                } catch (collectionError) {
-                  console.error(`Error fetching collection ${tier.collectionHandle}:`, collectionError);
-                }
-              }
-            }
-          } catch (parseError) {
-            console.error('Error parsing tiers configuration:', parseError);
-            tiers = [];
-          }
-        }
-        
-        console.log('Parsed tiers:', tiers);
-        setAvailableTiers(tiers);
-        setConfigLoading(false);
-        
-      } catch (error) {
-        console.error('Error fetching tier configuration:', error);
-        setConfigError(error.message);
-        setConfigLoading(false);
-        
-        // Fallback to basic working configuration
-        const fallbackTiers = [
-          {
-            id: "tier-1",
-            name: "Silver",
-            thresholdAmount: 8000, // $80.00 in cents
-            description: "Free gift with $80+ purchase",
-            maxSelections: 1,
-            giftVariantIds: ["44382780391481"],
-            giftProducts: [
-              {
-                variantId: "44382780391481",
-                productId: "7873478066233",
-                title: "Black Can Cooler",
-                image: "https://cdn.shopify.com/s/files/1/0524/6792/5182/products/HJ_ProductShot_BlkCanCooler.png?v=1609872033",
-                price: "0.00"
-              }
-            ]
-          },
-          {
-            id: "tier-2",
-            name: "Gold",
-            thresholdAmount: 12000, // $120.00 in cents
-            description: "Premium gift with $120+ purchase",
-            maxSelections: 1,
-            giftVariantIds: ["44382780391481"],
-            giftProducts: [
-              {
-                variantId: "44382780391481",
-                productId: "7873478066233",
-                title: "Black Can Cooler",
-                image: "https://cdn.shopify.com/s/files/1/0524/6792/5182/products/HJ_ProductShot_BlkCanCooler.png?v=1609872033",
-                price: "0.00"
-              }
-            ]
-          }
-        ];
-        setAvailableTiers(fallbackTiers);
-      }
-    };
+  // Check which tiers are unlocked
+  const getUnlockedTiers = () => {
+    // Sort tiers by threshold (highest to lowest) to ensure proper validation
+    const sortedTiers = [...availableTiers].sort((a, b) => b.thresholdAmount - a.thresholdAmount);
     
-    fetchTierConfig();
-  }, [extension]);
+    const unlocked = sortedTiers.filter(tier => {
+      // Double check tier thresholds
+      let threshold = tier.thresholdAmount;
+      if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
+        threshold = 12000; // Enforce $120
+      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+        threshold = 8000; // Enforce $80
+      }
+      
+      return cartTotal >= threshold;
+    });
+    
+    return unlocked;
+  };
+
+  // Get available selections for each tier
+  const getAvailableSelections = () => {
+    const unlockedTiers = getUnlockedTiers();
+    const availableSelections = {};
+    
+    // Sort tiers by threshold amount (highest first) to prioritize higher tiers
+    const sortedTiers = [...unlockedTiers].sort((a, b) => b.thresholdAmount - a.thresholdAmount);
+    
+    sortedTiers.forEach(tier => {
+      // Double check tier thresholds
+      let threshold = tier.thresholdAmount;
+      if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
+        threshold = 12000; // Enforce $120
+      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+        threshold = 8000; // Enforce $80
+      }
+      
+      // Skip if cart total is below threshold
+      if (cartTotal < threshold) {
+        return;
+      }
+      
+      const tierGifts = existingGifts.filter(gift => 
+        gift.attributes.some(attr => 
+          // Check for checkout extension tier ID
+          (attr.key === '_gift_tier_id' && attr.value === tier.id) ||
+          // Check for cart modal tier ID
+          (attr.key === '_gwp_tier_id' && attr.value === tier.id)
+        )
+      );
+      const remainingSelections = tier.maxSelections - tierGifts.length;
+      
+      if (remainingSelections > 0) {
+        // Check if there are any higher tier gifts already in cart
+        const hasHigherTierGifts = sortedTiers.some(higherTier => {
+          if (higherTier.thresholdAmount <= tier.thresholdAmount) {
+            return false;
+          }
+          
+          const higherTierGiftsInCart = existingGifts.filter(gift => 
+            gift.attributes.some(attr => 
+              (attr.key === '_gift_tier_id' && attr.value === higherTier.id) ||
+              (attr.key === '_gwp_tier_id' && attr.value === higherTier.id)
+            )
+          );
+          
+          return higherTierGiftsInCart.length > 0;
+        });
+        
+        if (!hasHigherTierGifts) {
+          availableSelections[tier.id] = {
+            tier: {
+              ...tier,
+              thresholdAmount: threshold // Use enforced threshold
+            },
+            remaining: remainingSelections,
+            selected: tierGifts.length
+          };
+        }
+      }
+    });
+    
+    return availableSelections;
+  };
+
+  // Get existing gift items in cart
+  const existingGifts = cartLines.filter(line => 
+    line.attributes.some(attr => 
+      // Check for checkout extension gifts
+      (attr.key === '_gift_with_purchase' && attr.value === 'true') ||
+      // Check for cart modal gifts
+      (attr.key === '_gwp_gift' && attr.value === 'true')
+    )
+  );
 
   // Auto-show modal when new tiers are unlocked
   useEffect(() => {
@@ -341,68 +183,6 @@ function Extension() {
     setLastCartTotal(cartTotal);
   }, [cartTotal, availableTiers, configLoading]);
 
-  // Get existing gift items in cart
-  const existingGifts = cartLines.filter(line => 
-    line.attributes.some(attr => 
-      // Check for checkout extension gifts
-      (attr.key === '_gift_with_purchase' && attr.value === 'true') ||
-      // Check for cart modal gifts
-      (attr.key === '_gwp_gift' && attr.value === 'true')
-    )
-  );
-
-  // Check which tiers are unlocked
-  const getUnlockedTiers = () => {
-    return availableTiers.filter(tier => cartTotal >= tier.thresholdAmount);
-  };
-
-  // Get available selections for each tier
-  const getAvailableSelections = () => {
-    const unlockedTiers = getUnlockedTiers();
-    const availableSelections = {};
-    
-    // Sort tiers by threshold amount (highest first) to prioritize higher tiers
-    const sortedTiers = [...unlockedTiers].sort((a, b) => b.thresholdAmount - a.thresholdAmount);
-    
-    sortedTiers.forEach(tier => {
-      const tierGifts = existingGifts.filter(gift => 
-        gift.attributes.some(attr => 
-          // Check for checkout extension tier ID
-          (attr.key === '_gift_tier_id' && attr.value === tier.id) ||
-          // Check for cart modal tier ID
-          (attr.key === '_gwp_tier_id' && attr.value === tier.id)
-        )
-      );
-      const remainingSelections = tier.maxSelections - tierGifts.length;
-      
-      if (remainingSelections > 0) {
-        // Check if there are any higher tier gifts already in cart
-        const hasHigherTierGifts = sortedTiers.some(higherTier => {
-          if (higherTier.thresholdAmount <= tier.thresholdAmount) return false;
-          
-          const higherTierGiftsInCart = existingGifts.filter(gift => 
-            gift.attributes.some(attr => 
-              (attr.key === '_gift_tier_id' && attr.value === higherTier.id) ||
-              (attr.key === '_gwp_tier_id' && attr.value === higherTier.id)
-            )
-          );
-          
-          return higherTierGiftsInCart.length > 0;
-        });
-        
-        if (!hasHigherTierGifts) {
-          availableSelections[tier.id] = {
-            tier,
-            remaining: remainingSelections,
-            selected: tierGifts.length
-          };
-        }
-      }
-    });
-    
-    return availableSelections;
-  };
-
   // Get next tier threshold for progress indication
   const getNextTierThreshold = () => {
     const nextTier = availableTiers.find(tier => cartTotal < tier.thresholdAmount);
@@ -415,16 +195,12 @@ function Extension() {
     return unlockedTiers.length > 0 ? unlockedTiers[unlockedTiers.length - 1] : null;
   };
 
-  // Remove gifts that are no longer eligible based on cart total
+  // Remove ineligible gifts that are no longer eligible based on cart total
   const removeIneligibleGifts = useCallback(async () => {
     try {
-      console.log('Checkout Extension: Checking for ineligible gifts to remove');
-      
       if (!cartLines || !availableTiers || availableTiers.length === 0) {
         return;
       }
-      
-      console.log('Checkout Extension: Current cart total:', cartTotal, 'cents ($' + (cartTotal / 100).toFixed(2) + ')');
       
       // Find all gift items in cart
       const giftItems = cartLines.filter(line => {
@@ -434,8 +210,6 @@ function Extension() {
           (attr.key === '_gwp_gift' && attr.value === 'true')
         );
       });
-      
-      console.log('Checkout Extension: Found', giftItems.length, 'gift items in cart');
       
       const itemsToRemove = [];
       
@@ -449,14 +223,12 @@ function Extension() {
         );
         
         if (!tierIdAttr) {
-          console.log('Checkout Extension: Gift item has no tier ID, checking against lowest tier');
           // If no tier ID, assume it's from the lowest tier
           const lowestTier = availableTiers.reduce((lowest, tier) => 
             tier.thresholdAmount < lowest.thresholdAmount ? tier : lowest
           );
           
           if (cartTotal < lowestTier.thresholdAmount) {
-            console.log('Checkout Extension: Removing unidentified gift (cart below lowest tier)');
             itemsToRemove.push({
               item: giftItem,
               reason: 'Below lowest tier threshold',
@@ -471,7 +243,6 @@ function Extension() {
         const matchingTier = availableTiers.find(tier => tier.id === tierId);
         
         if (!matchingTier) {
-          console.log('Checkout Extension: No matching tier found for gift, removing');
           itemsToRemove.push({
             item: giftItem,
             reason: 'Tier configuration not found',
@@ -482,32 +253,19 @@ function Extension() {
         
         // Check if cart total is below this tier's threshold
         if (cartTotal < matchingTier.thresholdAmount) {
-          console.log('Checkout Extension: Cart total ($' + (cartTotal / 100).toFixed(2) + 
-                     ') is below ' + matchingTier.name + ' tier threshold ($' + 
-                     (matchingTier.thresholdAmount / 100).toFixed(2) + ')');
           itemsToRemove.push({
             item: giftItem,
             reason: 'Below tier threshold',
             tierName: matchingTier.name,
             threshold: matchingTier.thresholdAmount
           });
-        } else {
-          console.log('Checkout Extension: Gift from ' + matchingTier.name + 
-                     ' tier is still eligible (cart: $' + (cartTotal / 100).toFixed(2) + 
-                     ', threshold: $' + (matchingTier.thresholdAmount / 100).toFixed(2) + ')');
         }
       });
       
       // Remove ineligible items
       if (itemsToRemove.length > 0) {
-        console.log('Checkout Extension: Removing', itemsToRemove.length, 'ineligible gift items');
-        
         for (const itemToRemove of itemsToRemove) {
           try {
-            console.log('Checkout Extension: Removing gift:', 
-                       itemToRemove.item.merchandise?.title || 'Unknown gift',
-                       'Reason:', itemToRemove.reason);
-            
             const result = await applyCartLinesChange({
               type: 'removeCartLine',
               id: itemToRemove.item.id,
@@ -515,8 +273,6 @@ function Extension() {
             });
             
             if (result.type === 'success') {
-              console.log('Checkout Extension: Successfully removed ineligible gift');
-              
               // Update selected gifts state to remove this item
               setSelectedGifts(prev => {
                 const updated = { ...prev };
@@ -528,19 +284,15 @@ function Extension() {
                 });
                 return updated;
               });
-            } else {
-              console.log('Checkout Extension: Failed to remove gift:', result);
             }
           } catch (error) {
-            console.log('Checkout Extension: Error removing gift:', error);
+            console.error('Error removing gift:', error);
           }
         }
-      } else {
-        console.log('Checkout Extension: No ineligible gifts found to remove');
       }
       
     } catch (error) {
-      console.log('Checkout Extension: Error in removeIneligibleGifts:', error);
+      console.error('Error in removeIneligibleGifts:', error);
     }
   }, [cartLines, cartTotal, availableTiers, applyCartLinesChange, setSelectedGifts]);
 
@@ -559,8 +311,6 @@ function Extension() {
   // Handle gift selection
   const handleSelectGift = async (variantId, tierId, productInfo) => {
     try {
-      console.log('Attempting to add gift with variant ID:', variantId, 'Product info:', productInfo);
-
       const result = await applyCartLinesChange({
         type: 'addCartLine',
         merchandiseId: `gid://shopify/ProductVariant/${variantId}`,
@@ -590,8 +340,6 @@ function Extension() {
         ]
       });
 
-      console.log('Add to cart result:', result);
-
       if (result.type === 'success') {
         setSelectedGifts(prev => ({
           ...prev,
@@ -610,11 +358,8 @@ function Extension() {
         
         // Show user-friendly error message
         if (result.message && result.message.includes('merchandise variant referenced by this term condition could not be found')) {
-          console.error('Product variant not found - this usually means the variant ID is incorrect or the product is not available');
-          // You could show a toast notification here if available
           alert('Sorry, this gift is currently unavailable. Please try another option or contact support.');
         } else {
-          console.error('Unknown error adding gift to cart:', result.message);
           alert('Sorry, there was an error adding this gift to your cart. Please try again.');
         }
       }
@@ -624,11 +369,9 @@ function Extension() {
     }
   };
 
-  // Handle modal button click with debugging
+  // Handle modal button click
   const handleModalButtonClick = () => {
-    console.log('Modal button clicked, current showModal state:', showModal);
     setShowModal(true);
-    console.log('Modal state set to true');
   };
 
   // Check if we should show the gift offer
@@ -721,8 +464,6 @@ function Extension() {
                   
                   <BlockStack spacing="none" padding={['extraTight', 'none', 'none', 'none']}>
                     {(selection.tier.giftProducts || []).map(product => {
-                      console.log('Rendering product:', product.title, 'Image URL:', product.image);
-                      
                       // Ensure image URL is valid and properly formatted
                       let imageUrl = product.image;
                       
@@ -739,8 +480,6 @@ function Extension() {
                       if (!imageUrl || !imageUrl.startsWith('http')) {
                         imageUrl = `https://via.placeholder.com/60x60/cccccc/666666?text=${encodeURIComponent(product.title || 'Gift')}`;
                       }
-                      
-                      console.log('Final image URL:', imageUrl);
                       
                       return (
                         <BlockStack key={product.variantId} spacing="extraTight" padding="extraTight">

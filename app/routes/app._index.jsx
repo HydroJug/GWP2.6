@@ -414,9 +414,33 @@ export default function Index() {
   }, [tiers]);
 
   const handleUpdateTier = useCallback((tierIndex, updates) => {
-    setTiers(tiers.map((tier, index) => 
-      index === tierIndex ? { ...tier, ...updates } : tier
-    ));
+    setTiers(tiers.map((tier, index) => {
+      if (index === tierIndex) {
+        // Create updated tier
+        const updatedTier = { ...tier, ...updates };
+        
+        // Enforce tier thresholds
+        if (updates.thresholdAmount !== undefined) {
+          if (updatedTier.name === 'Gold' || updatedTier.name.toLowerCase().includes('gold')) {
+            updatedTier.thresholdAmount = 12000; // Force $120 for Gold tier
+          } else if (updatedTier.name === 'Silver' || updatedTier.name.toLowerCase().includes('silver')) {
+            updatedTier.thresholdAmount = 8000; // Force $80 for Silver tier
+          }
+        }
+        
+        // If name is being updated, check if we need to enforce threshold
+        if (updates.name !== undefined) {
+          if (updates.name === 'Gold' || updates.name.toLowerCase().includes('gold')) {
+            updatedTier.thresholdAmount = 12000; // Force $120 for Gold tier
+          } else if (updates.name === 'Silver' || updates.name.toLowerCase().includes('silver')) {
+            updatedTier.thresholdAmount = 8000; // Force $80 for Silver tier
+          }
+        }
+        
+        return updatedTier;
+      }
+      return tier;
+    }));
   }, [tiers]);
 
   const handleAddProductToTier = useCallback((tierIndex, product) => {
@@ -576,8 +600,18 @@ export default function Index() {
                                 type="number"
                                 value={tier.thresholdAmount.toString()}
                                 onChange={(value) => handleUpdateTier(tierIndex, { thresholdAmount: parseInt(value) || 0 })}
-                                helpText={`${formatPrice(tier.thresholdAmount)}`}
+                                helpText={
+                                  tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')
+                                    ? "Gold tier threshold is fixed at $120 (12000 cents)"
+                                    : tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')
+                                    ? "Silver tier threshold is fixed at $80 (8000 cents)"
+                                    : `${formatPrice(tier.thresholdAmount)}`
+                                }
                                 placeholder="8000"
+                                disabled={
+                                  tier.name === 'Gold' || tier.name.toLowerCase().includes('gold') ||
+                                  tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')
+                                }
                               />
                             </Box>
                             <Box minWidth="150px">

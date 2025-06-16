@@ -4924,7 +4924,9 @@ export const loader = async ({ request }) => {
     headers: {
       'Content-Type': 'application/javascript',
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=300', // 5 minutes cache
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     },
   });
 }; 
