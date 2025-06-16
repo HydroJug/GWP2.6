@@ -135,6 +135,19 @@ function Extension() {
         });
 
         if (!response.ok) {
+          console.error('Failed to fetch GWP configuration:', {
+            status: response.status,
+            statusText: response.statusText,
+            url: apiUrl
+          });
+          
+          try {
+            const errorText = await response.text();
+            console.error('Error response body:', errorText);
+          } catch (textError) {
+            console.error('Could not read error response:', textError);
+          }
+          
           throw new Error(`Failed to fetch configuration: ${response.status}`);
         }
 
@@ -264,6 +277,23 @@ function Extension() {
             name: "Silver",
             thresholdAmount: 8000, // $80.00 in cents
             description: "Free gift with $80+ purchase",
+            maxSelections: 1,
+            giftVariantIds: ["44382780391481"],
+            giftProducts: [
+              {
+                variantId: "44382780391481",
+                productId: "7873478066233",
+                title: "Black Can Cooler",
+                image: "https://cdn.shopify.com/s/files/1/0524/6792/5182/products/HJ_ProductShot_BlkCanCooler.png?v=1609872033",
+                price: "0.00"
+              }
+            ]
+          },
+          {
+            id: "tier-2",
+            name: "Gold",
+            thresholdAmount: 12000, // $120.00 in cents
+            description: "Premium gift with $120+ purchase",
             maxSelections: 1,
             giftVariantIds: ["44382780391481"],
             giftProducts: [
