@@ -51,22 +51,16 @@ export const loader = async ({ request }) => {
       let lastKnownCartTotal = 0;
       let cartData = null;
       
-      // Get shop from URL parameters or determine from current domain
+      // Determine shop key to query config API: use current host if present, otherwise URL param
       const urlParams = new URLSearchParams(window.location.search);
       let shop = urlParams.get('shop');
+      const currentDomain = window.location.hostname;
+      if (!shop) shop = currentDomain;
       
-      // If no shop parameter or if it's a custom domain, use the myshopify.com domain
-      if (!shop || shop.includes('thehydrojug.com')) {
-        // Always use the myshopify.com domain for API calls
-        shop = 'hydrojug.myshopify.com';
-      }
-      
+      // Do not hardcode; backend will map aliases to canonical shop
       debugLog('Original shop from URL params:', urlParams.get('shop'));
-      debugLog('Current domain:', window.location.hostname);
-      debugLog('Final shop for API calls:', shop);
-      
-      debugLog('Shop determined:', shop);
-      debugLog('Current domain:', window.location.hostname);
+      debugLog('Current domain:', currentDomain);
+      debugLog('Final shop for API calls (alias OK):', shop);
       
       // Unique namespace to avoid conflicts
       const GWP_NAMESPACE = 'gwp-modal-' + Date.now();
@@ -1115,7 +1109,7 @@ export const loader = async ({ request }) => {
           debugLog('App URL determined from script:', appUrl);
           debugLog('Shop parameter:', shop);
           const timestamp = Date.now();
-          const configUrl = \`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}&v=\${timestamp}\`;
+          const configUrl = appUrl + '/app/gwp/public/gwp-settings?shop=' + shop + '&v=' + timestamp;
           debugLog('Config URL:', configUrl);
           const response = await fetch(configUrl);
           debugLog('Config response status:', response.status);

@@ -3,6 +3,38 @@ import { json } from "@remix-run/node";
 // Simple in-memory storage for configuration
 // In production, you'd want to use a database or external storage
 let shopConfigs = new Map();
+// Map custom domains (and other aliases) to canonical myshopify shop
+let aliasToShop = new Map();
+
+function normalizeHost(host) {
+  if (!host) return '';
+  try {
+    return host.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  } catch {
+    return host.toLowerCase();
+  }
+}
+
+function toggleWww(host) {
+  if (!host) return host;
+  return host.startsWith('www.') ? host.slice(4) : `www.${host}`;
+}
+
+function resolveShopKey(inputHost) {
+  const host = normalizeHost(inputHost);
+  if (!host) return null;
+  // Direct hit
+  if (shopConfigs.has(host)) return host;
+  // Alias mapping
+  const mapped = aliasToShop.get(host);
+  if (mapped && shopConfigs.has(mapped)) return mapped;
+  // Try toggling www/apex
+  const toggled = toggleWww(host);
+  if (shopConfigs.has(toggled)) return toggled;
+  const mappedToggled = aliasToShop.get(toggled);
+  if (mappedToggled && shopConfigs.has(mappedToggled)) return mappedToggled;
+  return null;
+}
 
 // Add CORS headers
 const corsHeaders = {
@@ -39,11 +71,14 @@ export const loader = async ({ request }) => {
       });
     }
 
-    // Get configuration for the shop
-    const config = shopConfigs.get(shop);
+    // Resolve configuration by shop or alias
+    const resolvedKey = resolveShopKey(shop);
+    const config = resolvedKey ? shopConfigs.get(resolvedKey) : null;
     
     console.log('Config API called for shop:', shop);
+    console.log('Resolved key:', resolvedKey);
     console.log('Available configs:', Array.from(shopConfigs.keys()));
+    console.log('Known aliases:', Array.from(aliasToShop.entries()));
     console.log('Found config:', config);
     
     if (config) {
@@ -100,7 +135,7 @@ export const action = async ({ request }) => {
     }
 
     const body = await request.json();
-    const { shop, config } = body;
+    const { shop, config, aliases } = body;
 
     if (!shop || !config) {
       return json({
@@ -111,9 +146,22 @@ export const action = async ({ request }) => {
       });
     }
 
-    // Store the configuration
-    shopConfigs.set(shop, config);
-    console.log('Configuration updated for shop:', shop);
+    // Store the configuration under canonical key
+    const canonicalKey = normalizeHost(shop);
+    shopConfigs.set(canonicalKey, config);
+
+    // Optionally record aliases (custom domains, www/apex)
+    if (Array.isArray(aliases)) {
+      for (const a of aliases) {
+        const alias = normalizeHost(a);
+        if (alias && alias !== canonicalKey) {
+          aliasToShop.set(alias, canonicalKey);
+        }
+      }
+    }
+
+    console.log('Configuration updated for shop:', canonicalKey);
+    console.log('Aliases now:', Array.from(aliasToShop.entries()));
 
     return json({
       success: true,

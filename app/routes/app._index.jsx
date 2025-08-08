@@ -296,7 +296,9 @@ export const action = async ({ request }) => {
               tiers: tiers,
               progressBar: progressBar,
               isActive: true
-            }
+            },
+            // Provide known aliases so storefront domains resolve to this shop
+            aliases: [session.shop]
           })
         });
         
