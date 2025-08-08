@@ -275,6 +275,33 @@ export const action = async ({ request }) => {
         isActive: true
       });
       
+      // Also save to our config API for public access
+      try {
+        const baseUrl = process.env.SHOPIFY_APP_URL || 'https://gwp-2-6.vercel.app';
+        const configResponse = await fetch(`${baseUrl}/app/gwp/config`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            shop: session.shop,
+            config: {
+              tiers: tiers,
+              progressBar: progressBar,
+              isActive: true
+            }
+          })
+        });
+        
+        if (configResponse.ok) {
+          console.log('Configuration saved to public API');
+        } else {
+          console.error('Failed to save configuration to public API:', configResponse.status);
+        }
+      } catch (error) {
+        console.error('Error saving configuration to public API:', error);
+      }
+      
       // Also save a cached configuration for the public API
       try {
         const fs = await import('fs/promises');

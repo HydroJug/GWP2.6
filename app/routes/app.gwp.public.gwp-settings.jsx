@@ -15,50 +15,85 @@ async function fetchConfigFromShopify(shop) {
   try {
     console.log(`Attempting to fetch config for shop: ${shop}`);
     
-    // For Vercel deployment, we'll use a simple approach
-    // In production, you might want to use a database or external storage
-    // For now, we'll return a default configuration
+    // Try to fetch configuration from our config API
+    const config = await fetchConfigFromAPI(shop);
+    if (config) {
+      console.log('Successfully loaded configuration from API');
+      return config;
+    }
     
-    // You can replace this with your actual configuration
-    const defaultConfig = {
-      tiers: [
-        {
-          id: 'tier1',
-          name: 'Silver',
-          thresholdAmount: 8000, // $80
-          description: 'Choose 1 free gift',
-          maxSelections: 1,
-          collectionId: null,
-          collectionHandle: null,
-          collectionTitle: null,
-          giftProducts: []
-        },
-        {
-          id: 'tier2', 
-          name: 'Gold',
-          thresholdAmount: 12000, // $120
-          description: 'Choose 1 free gift',
-          maxSelections: 1,
-          collectionId: null,
-          collectionHandle: null,
-          collectionTitle: null,
-          giftProducts: []
-        }
-      ],
-      progressBar: {
-        enabled: true,
-        selector: '.cart__items',
-        position: 'below'
-      },
-      isActive: true
-    };
-    
-    console.log('Returning default configuration for Vercel deployment');
-    return defaultConfig;
+    // If no config found, return default
+    console.log('No configuration found, returning default');
+    return getDefaultConfig();
   } catch (error) {
     console.error('Error fetching config from Shopify:', error);
+    return getDefaultConfig();
+  }
+}
+
+// Fetch configuration from our config API
+async function fetchConfigFromAPI(shop) {
+  try {
+    // Get the base URL for our app
+    const baseUrl = process.env.SHOPIFY_APP_URL || 'https://gwp-2-6.vercel.app';
+    const response = await fetch(`${baseUrl}/app/gwp/config?shop=${shop}`);
+    
+    if (!response.ok) {
+      console.error('Failed to fetch config from API:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (data.tiers && data.tiers.length > 0) {
+      return {
+        tiers: data.tiers,
+        progressBar: data.progressBar,
+        isActive: data.isActive
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching config from API:', error);
     return null;
   }
+}
+
+// Get default configuration
+function getDefaultConfig() {
+  return {
+    tiers: [
+      {
+        id: 'tier1',
+        name: 'Silver',
+        thresholdAmount: 8000, // $80
+        description: 'Choose 1 free gift',
+        maxSelections: 1,
+        collectionId: null,
+        collectionHandle: null,
+        collectionTitle: null,
+        giftProducts: []
+      },
+      {
+        id: 'tier2', 
+        name: 'Gold',
+        thresholdAmount: 12000, // $120
+        description: 'Choose 1 free gift',
+        maxSelections: 1,
+        collectionId: null,
+        collectionHandle: null,
+        collectionTitle: null,
+        giftProducts: []
+      }
+    ],
+    progressBar: {
+      enabled: true,
+      selector: '.cart__items',
+      position: 'below'
+    },
+    isActive: true
+  };
 }
 
 export const loader = async ({ request }) => {
