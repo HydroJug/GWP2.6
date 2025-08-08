@@ -4601,7 +4601,7 @@ export const loader = async ({ request }) => {
         
         // Test the API call
         const shopDomain = window.location.hostname;
-        const apiUrl = \`/apps/gwp/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
+        const apiUrl = \`/app/gwp/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
         console.log('API URL that would be called:', apiUrl);
         
         // Make the actual API call to test
