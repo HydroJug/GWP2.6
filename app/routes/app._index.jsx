@@ -284,6 +284,28 @@ export const action = async ({ request }) => {
           progressBar: progressBar,
           isActive: true
         });
+
+        // Determine canonical storage key as the shop's primary domain host
+        let primaryDomainHost = session.shop;
+        try {
+          const primaryResp = await admin.graphql(`{ shop { primaryDomain { host } } }`);
+          const primaryData = await primaryResp.json();
+          const host = primaryData?.data?.shop?.primaryDomain?.host;
+          if (host) {
+            primaryDomainHost = host;
+          }
+          console.log('Primary domain host resolved as:', primaryDomainHost);
+        } catch (e) {
+          console.error('Failed to fetch primary domain host, falling back to session.shop:', e);
+        }
+
+        // Build aliases so either domain works
+        const aliases = Array.from(new Set([
+          session.shop,
+          primaryDomainHost,
+          primaryDomainHost.startsWith('www.') ? primaryDomainHost.slice(4) : `www.${primaryDomainHost}`
+        ]));
+        console.log('Aliases to save with config:', aliases);
         
         const configResponse = await fetch(`${baseUrl}/app/gwp/config`, {
           method: 'POST',
@@ -291,14 +313,14 @@ export const action = async ({ request }) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            shop: session.shop,
+            // Use primary domain as the canonical key so storefront calls using host hit directly
+            shop: primaryDomainHost,
             config: {
               tiers: tiers,
               progressBar: progressBar,
               isActive: true
             },
-            // Provide known aliases so storefront domains resolve to this shop
-            aliases: [session.shop]
+            aliases
           })
         });
         

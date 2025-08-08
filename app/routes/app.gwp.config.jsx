@@ -93,6 +93,25 @@ export const loader = async ({ request }) => {
       });
     }
 
+    // Auto-learn alias if exactly one config exists
+    if (shopConfigs.size === 1) {
+      const onlyKey = Array.from(shopConfigs.keys())[0];
+      const fallbackConfig = shopConfigs.get(onlyKey);
+      const aliasKey = normalizeHost(shop);
+      if (aliasKey && aliasKey !== onlyKey) {
+        aliasToShop.set(aliasKey, onlyKey);
+        console.log('Alias learned:', aliasKey, '->', onlyKey);
+      }
+      return json({
+        tiers: fallbackConfig.tiers,
+        progressBar: fallbackConfig.progressBar,
+        isActive: fallbackConfig.isActive,
+        message: "Configuration loaded (alias learned)"
+      }, {
+        headers: corsHeaders,
+      });
+    }
+
     // Return default configuration if none exists
     console.log('No configuration found for shop:', shop, 'returning default');
     return json({
