@@ -1116,12 +1116,16 @@ export const loader = async ({ request }) => {
           
           debugLog('App URL determined from script:', appUrl);
           debugLog('Shop parameter:', shop);
-          const configUrl = \`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}\`;
+          const timestamp = Date.now();
+          const configUrl = \`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}&v=\${timestamp}\`;
           debugLog('Config URL:', configUrl);
           const response = await fetch(configUrl);
           debugLog('Config response status:', response.status);
+          debugLog('Config response URL:', response.url);
           const data = await response.json();
           debugLog('GWP config response:', data);
+          debugLog('GWP config tiers:', data.tiers);
+          debugLog('GWP config message:', data.message);
           
           const tiers = data.tiers || [];
           debugLog('Parsed tiers:', tiers);
