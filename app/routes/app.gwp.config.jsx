@@ -42,6 +42,10 @@ export const loader = async ({ request }) => {
     // Get configuration for the shop
     const config = shopConfigs.get(shop);
     
+    console.log('Config API called for shop:', shop);
+    console.log('Available configs:', Array.from(shopConfigs.keys()));
+    console.log('Found config:', config);
+    
     if (config) {
       console.log('Returning configuration for shop:', shop);
       return json({
