@@ -4,11 +4,17 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get('shop') || 'hydrojug.myshopify.com';
   
+  console.log('Cart modal loader called with shop:', shop);
+  console.log('Cart modal loader called with URL:', request.url);
+  
   // Generate the cart modal HTML/JS
   const cartModalScript = `
     (function() {
-      // Debug logging function that can be easily disabled
-const DEBUG_ENABLED = true;
+      console.log('GWP Script: Starting to load...');
+      
+      try {
+        // Debug logging function that can be easily disabled
+        const DEBUG_ENABLED = true;
       function debugLog(message, data) {
         if (!DEBUG_ENABLED) return;
         if (data !== undefined) {
@@ -86,18 +92,24 @@ const DEBUG_ENABLED = true;
       // Check if customer qualifies for gifts
       async function checkGiftEligibility(forceShow = false) {
         try {
+          debugLog('checkGiftEligibility called with forceShow:', forceShow);
+          
           // Only check dismissal for auto-showing, not for manual triggers
           if (!forceShow && wasRecentlyDismissed()) {
+            debugLog('Modal was recently dismissed, skipping...');
             return;
           }
           
           // Check if auto-show is temporarily suppressed (e.g., after adding gifts)
           if (!forceShow && window.gwpSuppressAutoShow) {
+            debugLog('Auto-show is suppressed, skipping...');
             return;
           }
           
           // For auto-show, use a simpler eligibility check that shows modal when first eligible
+          debugLog('Calling checkGiftEligibilityForAutoShow...');
           const eligibleTiers = await checkGiftEligibilityForAutoShow();
+          debugLog('checkGiftEligibilityForAutoShow returned:', eligibleTiers);
           
           if (eligibleTiers.length > 0 && !isModalOpen) {
             setTimeout(() => {
@@ -112,11 +124,16 @@ const DEBUG_ENABLED = true;
       // Auto-show eligibility check - shows modal when customer has available selections
       async function checkGiftEligibilityForAutoShow() {
         try {
+          debugLog('checkGiftEligibilityForAutoShow: Starting eligibility check...');
           const cartTotal = await getCartTotal();
+          debugLog('checkGiftEligibilityForAutoShow: Cart total:', cartTotal, 'cents ($' + (cartTotal / 100).toFixed(2) + ')');
           
           if (!gwpConfig || !Array.isArray(gwpConfig)) {
+            debugLog('checkGiftEligibilityForAutoShow: No gwpConfig or not an array:', gwpConfig);
             return [];
           }
+          
+          debugLog('checkGiftEligibilityForAutoShow: gwpConfig:', gwpConfig);
           
           // Check for non-GWP discount codes that would block gift eligibility
           const currentDiscountCodes = cartData?.discounts || [];
@@ -134,11 +151,16 @@ const DEBUG_ENABLED = true;
           // Get eligible tiers based on cart total
           const eligibleTiers = gwpConfig.filter(tier => {
             const isEligible = cartTotal >= tier.thresholdAmount;
+            debugLog('checkGiftEligibilityForAutoShow: Tier', tier.name, 'threshold:', tier.thresholdAmount, 'eligible:', isEligible);
             return isEligible;
           });
           
+          debugLog('checkGiftEligibilityForAutoShow: Eligible tiers before sorting:', eligibleTiers);
+          
           // Sort tiers by threshold amount (highest first) to prioritize higher tiers
           eligibleTiers.sort((a, b) => b.thresholdAmount - a.thresholdAmount);
+          
+          debugLog('checkGiftEligibilityForAutoShow: Eligible tiers after sorting:', eligibleTiers);
           
           // Check if any of these tiers have available selections
           const tiersWithAvailableSelections = [];
@@ -1074,7 +1096,11 @@ const DEBUG_ENABLED = true;
           const appUrl = new URL(scriptUrl).origin;
           
           debugLog('App URL determined from script:', appUrl);
-          const response = await fetch(\`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}\`);
+          debugLog('Shop parameter:', shop);
+          const configUrl = \`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}\`;
+          debugLog('Config URL:', configUrl);
+          const response = await fetch(configUrl);
+          debugLog('Config response status:', response.status);
           const data = await response.json();
           debugLog('GWP config response:', data);
           
@@ -4974,6 +5000,11 @@ const DEBUG_ENABLED = true;
         showGWPModalForSpecificTier: typeof window.showGWPModalForSpecificTier,
         openGWPModal: typeof window.openGWPModal
       });
+      
+      console.log('GWP Script: Successfully loaded!');
+    } catch (error) {
+      console.error('GWP Script: Error during initialization:', error);
+    }
     })();
   `;
 
