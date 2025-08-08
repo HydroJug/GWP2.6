@@ -51,6 +51,11 @@ export const loader = async ({ request }) => {
       let lastKnownCartTotal = 0;
       let cartData = null;
       
+      // Get shop from URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const shop = urlParams.get('shop') || 'www.thehydrojug.com';
+      debugLog('Shop determined from URL params:', shop);
+      
       // Unique namespace to avoid conflicts
       const GWP_NAMESPACE = 'gwp-modal-' + Date.now();
       const GWP_MODAL_ID = 'gwp-modal-overlay-' + Date.now();
