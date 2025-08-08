@@ -33,7 +33,7 @@
         throw new Error('Could not determine shop URL');
       }
 
-      const response = await fetch(`/apps/gwp/public/gwp-settings?shop=${encodeURIComponent(shop)}`);
+      const response = await fetch(`https://gwp-2-6.vercel.app/app/gwp/public/gwp-settings?shop=${encodeURIComponent(shop)}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }

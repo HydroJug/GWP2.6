@@ -1074,7 +1074,7 @@ const DEBUG_ENABLED = true;
           const appUrl = new URL(scriptUrl).origin;
           
           debugLog('App URL determined from script:', appUrl);
-          const response = await fetch(\`\${appUrl}/api/public/gwp-settings?shop=${shop}\`);
+          const response = await fetch(\`\${appUrl}/app/gwp/public/gwp-settings?shop=${shop}\`);
           const data = await response.json();
           debugLog('GWP config response:', data);
           
@@ -4544,7 +4544,7 @@ const DEBUG_ENABLED = true;
         
         // Test the API call
         const shopDomain = window.location.hostname;
-        const apiUrl = \`/api/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
+        const apiUrl = \`/apps/gwp/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
         console.log('API URL that would be called:', apiUrl);
         
         // Make the actual API call to test
