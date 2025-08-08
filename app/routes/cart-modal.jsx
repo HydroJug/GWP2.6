@@ -1107,38 +1107,49 @@ const DEBUG_ENABLED = true;
           debugLog('Fetching products from collection:', collectionHandle);
           // Use the Shopify store domain for collection API calls
           const shopDomain = window.location.hostname;
-          const response = await fetch(\`https://\${shopDomain}/collections/\${collectionHandle}/products.json?limit=10\`);
+          const collectionUrl = \`https://\${shopDomain}/collections/\${collectionHandle}/products.json?limit=10\`;
+          debugLog('Collection URL:', collectionUrl);
+          
+          const response = await fetch(collectionUrl);
           
           if (!response.ok) {
             debugLog('Collection response not OK:', response.status, response.statusText);
+            debugLog('Response URL:', response.url);
             return [];
           }
           
           const data = await response.json();
           debugLog('Collection data received:', data);
+          debugLog('Number of products in collection:', data.products ? data.products.length : 'No products array');
           
           if (!data.products || !Array.isArray(data.products)) {
             debugLog('No products array in collection data');
-          return [];
-        }
+            return [];
+          }
           
           debugLog('Total products in collection:', data.products.length);
           
           // Expand all available variants as separate selectable options
           const allVariants = [];
           
-          data.products.forEach(product => {
-            if (!product.variants || !Array.isArray(product.variants)) {
-              debugLog('Product has no variants:', product.title);
-              return;
-            }
-            
-            // Filter available variants
-            const availableVariants = product.variants.filter(variant => {
-              const isAvailable = variant && variant.available;
-              debugLog('Variant', variant.title, 'of', product.title, 'available:', isAvailable);
-              return isAvailable;
-            });
+          debugLog('Processing products to find available variants...');
+          
+                      data.products.forEach(product => {
+              debugLog('Processing product:', product.title, 'with', product.variants ? product.variants.length : 0, 'variants');
+              
+              if (!product.variants || !Array.isArray(product.variants)) {
+                debugLog('Product has no variants:', product.title);
+                return;
+              }
+              
+              // Filter available variants
+              const availableVariants = product.variants.filter(variant => {
+                const isAvailable = variant && variant.available;
+                debugLog('Variant', variant.title, 'of', product.title, 'available:', isAvailable);
+                return isAvailable;
+              });
+              
+              debugLog('Available variants for', product.title, ':', availableVariants.length);
             
             // Convert each variant to a selectable option
             availableVariants.forEach(variant => {
@@ -1189,6 +1200,7 @@ const DEBUG_ENABLED = true;
           const limitedVariants = allVariants.slice(0, 12);
           
           debugLog('Found', allVariants.length, 'total available variants, showing', limitedVariants.length, 'in collection', collectionHandle);
+          debugLog('Final variants array:', limitedVariants.map(v => ({ title: v.title, variantId: v.variantId })));
           return limitedVariants;
         } catch (error) {
           errorLog('Error fetching collection products:', error);
@@ -3169,7 +3181,7 @@ const DEBUG_ENABLED = true;
           }
           
           debugLog('Showing modal for', eligibleTiers.length, 'eligible tiers');
-          debugLog('Tier details:', eligibleTiers.map(t => ({ name: t.name, collectionHandle: t.collectionHandle })));
+          debugLog('Tier details:', eligibleTiers.map(t => ({ name: t.name, collectionHandle: t.collectionHandle, collectionId: t.collectionId })));
           
           // Check if modal already exists
           const existingModal = document.getElementById(GWP_MODAL_ID);
