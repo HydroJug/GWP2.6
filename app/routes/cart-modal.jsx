@@ -1078,7 +1078,7 @@ const DEBUG_ENABLED = true;
           const data = await response.json();
           debugLog('GWP config response:', data);
           
-          const tiers = JSON.parse(data.tiers);
+          const tiers = data.tiers || [];
           debugLog('Parsed tiers:', tiers);
           
           // Log each tier's details
@@ -4553,7 +4553,7 @@ const DEBUG_ENABLED = true;
           .then(data => {
             console.log('API Response:', data);
             if (data.tiers) {
-              const tiers = JSON.parse(data.tiers);
+              const tiers = data.tiers;
               console.log('Parsed tiers:', tiers);
               tiers.forEach(tier => {
                 console.log(\`Tier: \${tier.name}, Collection Handle: \${tier.collectionHandle || 'none'}\`);

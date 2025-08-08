@@ -74,7 +74,7 @@ function Extension() {
           return;
         }
         
-        const tiers = JSON.parse(data.tiers || '[]');
+        const tiers = data.tiers || [];
         console.log('Parsed GWP tiers:', tiers);
         
         setAvailableTiers(tiers);
