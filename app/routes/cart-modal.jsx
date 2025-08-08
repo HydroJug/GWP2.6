@@ -51,10 +51,24 @@ export const loader = async ({ request }) => {
       let lastKnownCartTotal = 0;
       let cartData = null;
       
-      // Get shop from URL parameters
+      // Get shop from URL parameters or determine from current domain
       const urlParams = new URLSearchParams(window.location.search);
-      const shop = urlParams.get('shop') || 'www.thehydrojug.com';
-      debugLog('Shop determined from URL params:', shop);
+      let shop = urlParams.get('shop');
+      
+      // If no shop parameter, try to determine from current domain
+      if (!shop) {
+        const currentDomain = window.location.hostname;
+        if (currentDomain.includes('myshopify.com')) {
+          shop = currentDomain;
+        } else {
+          // For custom domains, we need to map to the myshopify.com domain
+          // For now, use the known mapping for this store
+          shop = 'hydrojug.myshopify.com';
+        }
+      }
+      
+      debugLog('Shop determined:', shop);
+      debugLog('Current domain:', window.location.hostname);
       
       // Unique namespace to avoid conflicts
       const GWP_NAMESPACE = 'gwp-modal-' + Date.now();
