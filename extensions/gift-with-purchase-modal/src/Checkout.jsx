@@ -58,7 +58,7 @@ function Extension() {
         console.log('Loading GWP configuration for shop:', shop);
         
         // Fetch configuration from the public API
-        const response = await fetch(`/api/public/gwp-settings?shop=${shop}`);
+        const response = await fetch(`/app/gwp/public/gwp-settings?shop=${shop}`);
         
         if (!response.ok) {
           throw new Error(`Failed to fetch configuration: ${response.status} ${response.statusText}`);

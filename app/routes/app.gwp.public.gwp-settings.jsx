@@ -15,65 +15,48 @@ async function fetchConfigFromShopify(shop) {
   try {
     console.log(`Attempting to fetch config for shop: ${shop}`);
     
-    // Create a mock admin session for the shop
-    // Note: This is a simplified approach - in production you might want to use a different method
-    // to access the shop's configuration without requiring full authentication
+    // For Vercel deployment, we'll use a simple approach
+    // In production, you might want to use a database or external storage
+    // For now, we'll return a default configuration
     
-    // For now, we'll use the cached config approach but with better error handling
-    const cachedConfig = await loadCachedConfig(shop);
-    if (cachedConfig && cachedConfig.tiers && cachedConfig.tiers.length > 0) {
-      console.log('Successfully loaded cached configuration');
-      return cachedConfig;
-    }
+    // You can replace this with your actual configuration
+    const defaultConfig = {
+      tiers: [
+        {
+          id: 'tier1',
+          name: 'Silver',
+          thresholdAmount: 8000, // $80
+          description: 'Choose 1 free gift',
+          maxSelections: 1,
+          collectionId: null,
+          collectionHandle: null,
+          collectionTitle: null,
+          giftProducts: []
+        },
+        {
+          id: 'tier2', 
+          name: 'Gold',
+          thresholdAmount: 12000, // $120
+          description: 'Choose 1 free gift',
+          maxSelections: 1,
+          collectionId: null,
+          collectionHandle: null,
+          collectionTitle: null,
+          giftProducts: []
+        }
+      ],
+      progressBar: {
+        enabled: true,
+        selector: '.cart__items',
+        position: 'below'
+      },
+      isActive: true
+    };
     
-    console.log('No cached config found or config was empty');
-    return null;
+    console.log('Returning default configuration for Vercel deployment');
+    return defaultConfig;
   } catch (error) {
     console.error('Error fetching config from Shopify:', error);
-    return null;
-  }
-}
-
-// Function to load cached configuration
-async function loadCachedConfig(shop) {
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    
-    // Create a shop-specific config file
-    const configDir = './cache';
-    const configPath = path.join(configDir, `gwp-config-${shop.replace(/[^a-zA-Z0-9]/g, '-')}.json`);
-    
-    console.log(`Looking for cached config at: ${configPath}`);
-    console.log(`Shop parameter: ${shop}`);
-    console.log(`Sanitized shop name: ${shop.replace(/[^a-zA-Z0-9]/g, '-')}`);
-    
-    // Check if the config file exists
-    try {
-      await fs.access(configPath);
-      console.log(`Cache file found at: ${configPath}`);
-    } catch (accessError) {
-      console.log(`No cached config found for shop: ${shop} at path: ${configPath}`);
-      console.log(`Access error:`, accessError.message);
-      
-      // Try to list what files are in the cache directory
-      try {
-        const files = await fs.readdir(configDir);
-        console.log(`Files in cache directory:`, files);
-      } catch (readdirError) {
-        console.log(`Could not read cache directory:`, readdirError.message);
-      }
-      
-      return null;
-    }
-    
-    const configData = await fs.readFile(configPath, 'utf-8');
-    const config = JSON.parse(configData);
-    
-    console.log(`Loaded cached config for ${shop}, ${config.tiers?.length || 0} tiers`);
-    return config;
-  } catch (error) {
-    console.error('Error loading cached config:', error);
     return null;
   }
 }
