@@ -25,7 +25,7 @@ target = "purchase.checkout.cart-line-list.render-after"
 api_access = true
 
 # Network access for fetching settings from our admin interface
-network_access = true
+# TEMPORARILY DISABLED: network_access = true
 
 # Loads metafields on checkout resources, including the cart,
 # products, customers, and more. Learn more:

@@ -7,7 +7,7 @@ application_url = "https://gwp-2-5.vercel.app/"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = false
+automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
 [webhooks]
@@ -23,7 +23,7 @@ api_version = "2025-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,write_cart_transforms"
+scopes = "write_products,read_products,write_cart_transforms,write_discounts,read_discounts"
 
 [auth]
 redirect_urls = [

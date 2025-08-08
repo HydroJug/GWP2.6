@@ -8,7 +8,7 @@ export const loader = async ({ request }) => {
   const cartModalScript = `
     (function() {
       // Debug logging function that can be easily disabled
-      const DEBUG_ENABLED = false;
+const DEBUG_ENABLED = true;
       function debugLog(message, data) {
         if (!DEBUG_ENABLED) return;
         if (data !== undefined) {
@@ -1068,7 +1068,13 @@ export const loader = async ({ request }) => {
       async function fetchGWPConfig() {
         try {
           debugLog('Fetching GWP configuration...');
-          const response = await fetch(\`https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=${shop}\`);
+          // Get the current script URL to determine the app domain
+          const scriptElement = document.currentScript || document.querySelector('script[src*="cart-modal"]');
+          const scriptUrl = scriptElement ? scriptElement.src : window.location.href;
+          const appUrl = new URL(scriptUrl).origin;
+          
+          debugLog('App URL determined from script:', appUrl);
+          const response = await fetch(\`\${appUrl}/api/public/gwp-settings?shop=${shop}\`);
           const data = await response.json();
           debugLog('GWP config response:', data);
           
@@ -1099,7 +1105,9 @@ export const loader = async ({ request }) => {
       async function fetchCollectionProducts(collectionHandle) {
         try {
           debugLog('Fetching products from collection:', collectionHandle);
-          const response = await fetch(\`/collections/\${collectionHandle}/products.json?limit=10\`);
+          // Use the Shopify store domain for collection API calls
+          const shopDomain = window.location.hostname;
+          const response = await fetch(\`https://\${shopDomain}/collections/\${collectionHandle}/products.json?limit=10\`);
           
           if (!response.ok) {
             debugLog('Collection response not OK:', response.status, response.statusText);
@@ -1198,6 +1206,63 @@ export const loader = async ({ request }) => {
       const dismissModalFunctionName = \`dismissGWPModal_\${Date.now()}\`;
       const removeGiftFunctionName = \`removeGiftFromCart_\${Date.now()}\`;
       const refreshModalFunctionName = \`refreshModalContent_\${Date.now()}\`;
+      
+      // Debug function to reset modal state
+      window.resetGWPModal = function() {
+        sessionStorage.removeItem('gwp_modal_dismissed');
+        sessionStorage.removeItem('gwp_modal_dismissed_time');
+        sessionStorage.removeItem('gwp_modal_dismissal_type');
+        window.gwpSuppressAutoShow = false;
+        console.log('GWP Modal state reset. Modal should show again on next cart update.');
+      };
+      
+      // Function to check eligibility and show modal (for progress bar integration)
+      window.gwpCheckEligibility = function() {
+        debugLog('GWP Check Eligibility called from progress bar');
+        
+        // For manual triggers, show modal directly if customer is eligible for any tier
+        const cartTotal = getCartTotalSync();
+        const eligibleTiers = gwpConfig.filter(tier => cartTotal >= tier.thresholdAmount);
+        
+        if (eligibleTiers.length > 0 && !isModalOpen) {
+          debugLog('Customer eligible for tiers:', eligibleTiers.map(t => t.name));
+          setTimeout(() => {
+            showGWPModal();
+          }, 100);
+        } else if (isModalOpen) {
+          debugLog('Modal already open');
+        } else {
+          debugLog('No eligible tiers found. Cart total:', cartTotal, 'Available tiers:', gwpConfig.map(t => ({ name: t.name, threshold: t.thresholdAmount })));
+        }
+      };
+      
+      // Helper function to get cart total synchronously
+      function getCartTotalSync() {
+        try {
+          // Try to get from cart data first
+          if (cartData && cartData.items) {
+            return cartData.items.reduce((total, item) => {
+              return total + (item.final_line_price || item.line_price || 0);
+            }, 0);
+          }
+          
+          // Fallback: try to get from page elements
+          const cartTotalElements = document.querySelectorAll('[data-cart-total], .cart-total, .cart__total-price, .cart-drawer__total');
+          for (const element of cartTotalElements) {
+            const text = element.textContent || element.innerText;
+            const match = text.match(/[\d,]+\.?\d*/);
+            if (match) {
+              const amount = parseFloat(match[0].replace(/,/g, ''));
+              return Math.round(amount * 100); // Convert to cents
+            }
+          }
+          
+          return 0;
+        } catch (error) {
+          debugLog('Error getting cart total sync:', error);
+          return 0;
+        }
+      }
       
       // Select gift product with unique function name
       window[selectProductFunctionName] = function(variantId, tierId, element) {
@@ -3669,7 +3734,25 @@ export const loader = async ({ request }) => {
       // Create a global function to manually trigger eligibility check
       window.gwpCheckEligibility = function() {
         debugLog('Manual eligibility check triggered');
-        setTimeout(checkGiftEligibility, 100);
+        
+        // For manual triggers, show modal directly if customer is eligible for any tier
+        // Use progress bar eligibility check which doesn't filter based on existing gifts
+        checkGiftEligibilityForProgressBar().then(eligibleTiers => {
+          if (eligibleTiers.length > 0 && !isModalOpen) {
+            debugLog('Customer eligible for tiers:', eligibleTiers.map(t => t.name));
+            setTimeout(() => {
+              showGWPModalForProgressBar();
+            }, 100);
+          } else if (isModalOpen) {
+            debugLog('Modal already open');
+          } else {
+            getCartTotal().then(cartTotal => {
+              debugLog('No eligible tiers found. Cart total:', cartTotal, 'Available tiers:', gwpConfig.map(t => ({ name: t.name, threshold: t.thresholdAmount })));
+            });
+          }
+        }).catch(error => {
+          debugLog('Error checking eligibility:', error);
+        });
       };
       
       // Create a global function to clear all dismissal flags for testing
@@ -4461,7 +4544,7 @@ export const loader = async ({ request }) => {
         
         // Test the API call
         const shopDomain = window.location.hostname;
-        const apiUrl = \`https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
+        const apiUrl = \`/api/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
         console.log('API URL that would be called:', apiUrl);
         
         // Make the actual API call to test

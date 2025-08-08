@@ -1,0 +1,414 @@
+{% comment %}
+  Gift with Purchase Progress Bar - App Embed Block
+  This block shows a progress bar with gift tiers and shipping thresholds.
+{% endcomment %}
+
+{% comment %} Get GWP configuration from app settings {% endcomment %}
+{% assign gwp_config = null %}
+{% if app.metafields.gwp_settings.config %}
+  {% assign gwp_config = app.metafields.gwp_settings.config.value %}
+{% endif %}
+
+{% comment %} Get collection images for tiers {% endcomment %}
+{% assign tier_collection_images = '' | split: ',' %}
+{% if gwp_config and gwp_config.tiers %}
+  {% for tier in gwp_config.tiers %}
+    {% if tier.collectionHandle %}
+      {% assign collection = collections[tier.collectionHandle] %}
+      {% if collection and collection.products.first %}
+        {% assign first_product = collection.products.first %}
+        {% if first_product.featured_image %}
+          {% assign tier_collection_images = tier_collection_images | concat: tier.id | concat: first_product.featured_image %}
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% comment %} Check for GWP gifts in cart {% endcomment %}
+{% assign gifts_in_cart = '' | split: ',' %}
+{% for item in cart.items %}
+  {% if item.properties._gwp_tier_id or item.properties._gwp_tier or item.properties._gift_tier_id %}
+    {% assign gifts_in_cart = gifts_in_cart | concat: item.properties._gwp_tier_id | concat: item.properties._gwp_tier | concat: item.properties._gift_tier_id %}
+  {% endif %}
+{% endfor %}
+
+{% comment %} Only show if enabled and we have config {% endcomment %}
+{% if block.settings.enabled and gwp_config and gwp_config.tiers %}
+  <div class="gwp-progress-bar-container" 
+       data-cart-total="{{ cart.total_price }}"
+       data-gwp-config="{{ gwp_config | json | escape }}"
+       data-gifts-in-cart="{{ gifts_in_cart | json | escape }}">
+    
+    {% comment %} Progress bar message {% endcomment %}
+    <div class="gwp-progress-message">
+      {% assign cart_total = cart.total_price %}
+      {% assign highest_eligible_tier = null %}
+      {% assign next_tier = null %}
+      
+      {% comment %} Find highest eligible tier and next tier {% endcomment %}
+      {% for tier in gwp_config.tiers %}
+        {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
+        {% if cart_total >= tier_threshold %}
+          {% assign highest_eligible_tier = tier %}
+        {% else %}
+          {% unless next_tier %}
+            {% assign next_tier = tier %}
+          {% endunless %}
+        {% endif %}
+      {% endfor %}
+      
+      {% comment %} Check if customer has gifts from highest eligible tier {% endcomment %}
+      {% assign has_gift_from_tier = false %}
+      {% if highest_eligible_tier %}
+        {% for item in cart.items %}
+          {% if item.properties._gwp_tier_id == highest_eligible_tier.id or item.properties._gwp_tier == highest_eligible_tier.name or item.properties._gift_tier_id == highest_eligible_tier.id %}
+            {% assign has_gift_from_tier = true %}
+            {% break %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      
+      {% comment %} Display appropriate message {% endcomment %}
+      {% if highest_eligible_tier %}
+        {% if has_gift_from_tier %}
+          <span>{{ highest_eligible_tier.name }} Gift</span> Earned!
+          {% if next_tier %}
+            Spend {{ next_tier.thresholdAmount | minus: cart_total | money_without_trailing_zeros }} more for <span>{{ next_tier.name }} Gift</span>
+          {% endif %}
+        {% else %}
+          <span>{{ highest_eligible_tier.name }} Gift</span> Earned! 
+          <span class="gwp-claim-now" style="cursor: pointer; text-decoration: underline;" onclick="if(window.gwpCheckEligibility) window.gwpCheckEligibility();">Claim Now!</span>
+          {% if next_tier %}
+            Spend {{ next_tier.thresholdAmount | minus: cart_total | money_without_trailing_zeros }} more for <span>{{ next_tier.name }} Gift</span>
+          {% endif %}
+        {% endif %}
+      {% else %}
+        {% if gwp_config.tiers.first %}
+          {% assign first_tier = gwp_config.tiers.first %}
+          Spend {{ first_tier.thresholdAmount | minus: cart_total | money_without_trailing_zeros }} more for <span>{{ first_tier.name }} Gift</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    
+    {% comment %} Progress bar meter {% endcomment %}
+    <div class="gwp-progress-bar-wrapper">
+      <div class="gwp-progress-bar-meter">
+        {% assign max_threshold = 0 %}
+        {% for tier in gwp_config.tiers %}
+          {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
+          {% if tier_threshold > max_threshold %}
+            {% assign max_threshold = tier_threshold %}
+          {% endif %}
+        {% endfor %}
+        
+        {% assign progress_percentage = cart_total | times: 100 | divided_by: max_threshold %}
+        {% if progress_percentage > 100 %}
+          {% assign progress_percentage = 100 %}
+        {% endif %}
+        
+        <div class="gwp-progress-bar-meter-fill" style="width: {{ progress_percentage }}%;"></div>
+      </div>
+      
+      {% comment %} Tier icons {% endcomment %}
+      {% for tier in gwp_config.tiers %}
+        {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
+        {% assign tier_position = tier_threshold | times: 100 | divided_by: max_threshold %}
+        {% if tier_position > 100 %}
+          {% assign tier_position = 100 %}
+        {% endif %}
+        
+        {% assign is_complete = false %}
+        {% if cart_total >= tier_threshold %}
+          {% assign is_complete = true %}
+        {% endif %}
+        
+        {% assign has_gift_from_this_tier = false %}
+        {% for item in cart.items %}
+          {% if item.properties._gwp_tier_id == tier.id or item.properties._gwp_tier == tier.name or item.properties._gift_tier_id == tier.id %}
+            {% assign has_gift_from_this_tier = true %}
+            {% break %}
+          {% endif %}
+        {% endfor %}
+        
+        <div class="gwp-progress-icon{% if is_complete %} complete{% endif %}" 
+             id="gwp-icon-{{ tier.id }}" 
+             style="left: {{ tier_position }}%; cursor: pointer;" 
+             data-threshold="{{ tier_threshold }}" 
+             data-tier-id="{{ tier.id }}"
+             data-tier-name="{{ tier.name }}">
+          
+          {% if has_gift_from_this_tier %}
+            {% comment %} Show selected gift image if available {% endcomment %}
+            {% assign tier_gift = null %}
+            {% for item in cart.items %}
+              {% if item.properties._gwp_tier_id == tier.id or item.properties._gwp_tier == tier.name or item.properties._gift_tier_id == tier.id %}
+                {% assign tier_gift = item %}
+                {% break %}
+              {% endif %}
+            {% endfor %}
+            
+            {% if tier_gift and tier_gift.featured_image %}
+              <img src="{{ tier_gift.featured_image | img_url: '35x35' }}" 
+                   alt="{{ tier_gift.title }}" 
+                   width="35" height="35" 
+                   style="border: 2px solid #0161FE; width: 35px; height: 35px; border-radius: 50%; object-fit: cover;">
+            {% else %}
+              {% comment %} Fallback to collection image or default {% endcomment %}
+              {% assign collection_image = null %}
+              {% if tier.collectionHandle %}
+                {% assign collection = collections[tier.collectionHandle] %}
+                {% if collection and collection.products.first %}
+                  {% assign first_product = collection.products.first %}
+                  {% if first_product.featured_image %}
+                    {% assign collection_image = first_product.featured_image %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+              
+              {% if collection_image %}
+                <img src="{{ collection_image | img_url: '35x35' }}" 
+                     alt="{{ tier.name }} Gift" 
+                     width="35" height="35" 
+                     style="border: 2px solid #0161FE; width: 35px; height: 35px; border-radius: 50%; object-fit: cover;">
+              {% else %}
+                <img src="{{ block.settings.default_gift_image | img_url: '35x35' | default: 'https://via.placeholder.com/35x35/cccccc/666666?text=Gift' }}" 
+                     alt="{{ tier.name }} Gift" 
+                     width="35" height="35" 
+                     style="border: 2px solid #0161FE; width: 35px; height: 35px; border-radius: 50%; object-fit: cover;">
+              {% endif %}
+            {% endif %}
+          {% else %}
+            {% comment %} Show collection image or default for unclaimed tiers {% endcomment %}
+            {% assign collection_image = null %}
+            {% if tier.collectionHandle %}
+              {% assign collection = collections[tier.collectionHandle] %}
+              {% if collection and collection.products.first %}
+                {% assign first_product = collection.products.first %}
+                {% if first_product.featured_image %}
+                  {% assign collection_image = first_product.featured_image %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+            
+            {% if collection_image %}
+              <img src="{{ collection_image | img_url: '35x35' }}" 
+                   alt="{{ tier.name }} Gift" 
+                   width="35" height="35" 
+                   style="border: 1px solid #ddd; background: #f9f9f9; width: 35px; height: 35px; border-radius: 50%; object-fit: cover;">
+            {% else %}
+              <img src="{{ block.settings.default_gift_image | img_url: '35x35' | default: 'https://via.placeholder.com/35x35/cccccc/666666?text=Gift' }}" 
+                   alt="{{ tier.name }} Gift" 
+                   width="35" height="35" 
+                   style="border: 1px solid #ddd; background: #f9f9f9; width: 35px; height: 35px; border-radius: 50%; object-fit: cover;">
+            {% endif %}
+          {% endif %}
+          
+          <span class="gwp-tier-price">
+            {{ tier_threshold | money_without_trailing_zeros }}
+          </span>
+          {% if has_gift_from_this_tier %}
+            <span class="gwp-change-gift-hint" style="font-size: 9px; color: #0161FE; display: block; margin-top: 2px;">Click to change</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<style>
+  .gwp-progress-bar-container {
+    margin: 20px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+  }
+  
+  .gwp-progress-message {
+    text-align: center;
+    margin-bottom: 15px;
+    font-size: 14px;
+    color: #495057;
+  }
+  
+  .gwp-progress-message span {
+    font-weight: bold;
+    color: #0161FE;
+  }
+  
+  .gwp-claim-now {
+    color: #0161FE !important;
+    font-weight: bold;
+  }
+  
+  .gwp-progress-bar-wrapper {
+    position: relative;
+    margin-top: 20px;
+  }
+  
+  .gwp-progress-bar-meter {
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  
+  .gwp-progress-bar-meter-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0161FE, #0056d6);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  
+  .gwp-progress-icon {
+    position: absolute;
+    top: -15px;
+    transform: translateX(-50%);
+    text-align: center;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+  }
+  
+  .gwp-progress-icon:hover {
+    background: rgba(1, 97, 254, 0.1);
+    transform: translateX(-50%) scale(1.05);
+  }
+  
+  .gwp-progress-icon:active {
+    transform: translateX(-50%) scale(0.95);
+  }
+  
+  .gwp-progress-icon.complete img {
+    border-color: #28a745 !important;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+  }
+  
+  .gwp-tier-price {
+    display: block;
+    font-size: 11px;
+    font-weight: bold;
+    margin-top: 5px;
+    color: #495057;
+  }
+  
+  .gwp-progress-icon.complete .gwp-tier-price {
+    color: #28a745;
+  }
+</style>
+
+<script>
+  // GWP Progress Bar JavaScript
+  (function() {
+    const progressBarContainer = document.querySelector('.gwp-progress-bar-container');
+    if (!progressBarContainer) return;
+    
+    // Get initial data
+    const cartTotal = parseInt(progressBarContainer.dataset.cartTotal) || 0;
+    const gwpConfig = JSON.parse(progressBarContainer.dataset.gwpConfig || '{}');
+    const giftsInCart = JSON.parse(progressBarContainer.dataset.giftsInCart || '[]');
+    
+    // Function to update progress bar
+    function updateProgressBar() {
+      // This will be called when cart updates
+      // For now, we'll rely on page refresh for updates
+      // In the future, this could be enhanced with AJAX cart updates
+    }
+    
+    // Add click handlers for claim buttons and progress icons
+    document.addEventListener('click', function(e) {
+      if (e.target.classList.contains('gwp-claim-now')) {
+        e.preventDefault();
+        console.log('Claim now button clicked');
+        if (window.gwpCheckEligibility) {
+          console.log('Calling gwpCheckEligibility');
+          window.gwpCheckEligibility();
+        } else {
+          console.log('gwpCheckEligibility function not found');
+        }
+      }
+      
+      // Handle clicks on progress icons (for changing gifts)
+      if (e.target.closest('.gwp-progress-icon')) {
+        e.preventDefault();
+        console.log('Progress icon clicked');
+        if (window.gwpCheckEligibility) {
+          console.log('Calling gwpCheckEligibility from icon click');
+          window.gwpCheckEligibility();
+        } else {
+          console.log('gwpCheckEligibility function not found');
+        }
+      }
+    });
+    
+    // Listen for cart updates (if using AJAX cart)
+    if (typeof window.Shopify !== 'undefined' && window.Shopify.onCartUpdate) {
+      window.Shopify.onCartUpdate = function(cart) {
+        // Update progress bar when cart changes
+        setTimeout(updateProgressBar, 100);
+      };
+    }
+    
+    // Fallback: Wait for cart modal script to load
+    let checkAttempts = 0;
+    const maxAttempts = 50; // 5 seconds max
+    
+    function waitForCartModal() {
+      if (window.gwpCheckEligibility) {
+        console.log('Cart modal script loaded, progress bar ready');
+        return;
+      }
+      
+      checkAttempts++;
+      if (checkAttempts < maxAttempts) {
+        setTimeout(waitForCartModal, 100);
+      } else {
+        console.log('Cart modal script not loaded after 5 seconds');
+      }
+    }
+    
+    // Start checking for cart modal script
+    waitForCartModal();
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "GWP Progress Bar",
+  "target": "section",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Enable Progress Bar",
+      "default": true,
+      "info": "Show the gift progress bar with tier thresholds"
+    },
+    {
+      "type": "image_picker",
+      "id": "default_gift_image",
+      "label": "Default Gift Image",
+      "info": "Default image to show for gift tiers (35x35px recommended)"
+    },
+    {
+      "type": "header",
+      "content": "Styling Options"
+    },
+    {
+      "type": "color",
+      "id": "progress_color",
+      "label": "Progress Bar Color",
+      "default": "#0161FE"
+    },
+    {
+      "type": "color",
+      "id": "completed_color",
+      "label": "Completed Tier Color",
+      "default": "#28a745"
+    }
+  ]
+}
+{% endschema %} 

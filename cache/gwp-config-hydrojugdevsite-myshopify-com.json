@@ -1,0 +1,29 @@
+{
+  "tiers": [
+    {
+      "id": "tier1752784878108",
+      "name": "Silver",
+      "thresholdAmount": 8000,
+      "description": "Choose 1 free gift",
+      "maxSelections": 1,
+      "collectionId": "321777631422",
+      "collectionHandle": "gwp-tier-1",
+      "collectionTitle": "GWP Tier 1",
+      "giftVariantIds": [],
+      "giftProducts": []
+    },
+    {
+      "id": "tier1753297627907",
+      "name": "Gold",
+      "thresholdAmount": 12000,
+      "description": "Choose 1 free gift",
+      "maxSelections": 1,
+      "collectionId": "321777696958",
+      "collectionHandle": "gwp-tier-2",
+      "collectionTitle": "GWP Tier 2",
+      "giftVariantIds": [],
+      "giftProducts": []
+    }
+  ],
+  "isActive": true
+}

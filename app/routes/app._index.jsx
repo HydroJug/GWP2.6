@@ -26,6 +26,8 @@ import { authenticate } from "../shopify.server";
 import { json } from "@remix-run/node";
 import { getGWPSettings, saveGWPSettings } from "../lib/storage.server";
 
+
+
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   
@@ -258,15 +260,18 @@ export const action = async ({ request }) => {
 
   if (action === "saveSettings") {
     const tiersData = formData.get("tiers");
+    const progressBarData = formData.get("progressBar");
     
-    console.log('Saving multi-tier settings:', { tiersData });
+    console.log('Saving multi-tier settings:', { tiersData, progressBarData });
     
     try {
       const tiers = JSON.parse(tiersData);
+      const progressBar = progressBarData ? JSON.parse(progressBarData) : null;
       
       // Save to metafields
       await saveGWPSettings(admin, session.shop, {
         tiers: tiers,
+        progressBar: progressBar,
         isActive: true
       });
       
@@ -299,6 +304,7 @@ export const action = async ({ request }) => {
             giftVariantIds: tier.giftVariantIds || [],
             giftProducts: tier.giftProducts || []
           })),
+          progressBar: progressBar,
           isActive: true
         };
 
@@ -311,6 +317,18 @@ export const action = async ({ request }) => {
         
       } catch (cacheError) {
         console.error('Error saving cached config:', cacheError);
+      }
+
+
+
+      // Create/update the automatic discount using the function extension
+      console.log('🎯 About to create/update automatic discount');
+      try {
+        await createOrUpdateAutomaticDiscount(admin, session.shop, tiers);
+        console.log('🎯 Successfully created/updated automatic discount');
+      } catch (discountError) {
+        console.error('🎯 Error creating automatic discount:', discountError);
+        // Don't fail the entire save operation if discount creation fails
       }
       
       return json({ 
@@ -337,6 +355,11 @@ export default function Index() {
   const shopify = useAppBridge();
   
   const [tiers, setTiers] = useState(settings.tiers || []);
+  const [progressBarConfig, setProgressBarConfig] = useState({
+    enabled: settings.progressBar?.enabled ?? false,
+    selector: settings.progressBar?.selector ?? '',
+    position: settings.progressBar?.position ?? 'below'
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [collectionSearchQuery, setCollectionSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -416,27 +439,8 @@ export default function Index() {
   const handleUpdateTier = useCallback((tierIndex, updates) => {
     setTiers(tiers.map((tier, index) => {
       if (index === tierIndex) {
-        // Create updated tier
+        // Create updated tier with the provided updates
         const updatedTier = { ...tier, ...updates };
-        
-        // Enforce tier thresholds
-        if (updates.thresholdAmount !== undefined) {
-          if (updatedTier.name === 'Gold' || updatedTier.name.toLowerCase().includes('gold')) {
-            updatedTier.thresholdAmount = 12000; // Force $120 for Gold tier
-          } else if (updatedTier.name === 'Silver' || updatedTier.name.toLowerCase().includes('silver')) {
-            updatedTier.thresholdAmount = 8000; // Force $80 for Silver tier
-          }
-        }
-        
-        // If name is being updated, check if we need to enforce threshold
-        if (updates.name !== undefined) {
-          if (updates.name === 'Gold' || updates.name.toLowerCase().includes('gold')) {
-            updatedTier.thresholdAmount = 12000; // Force $120 for Gold tier
-          } else if (updates.name === 'Silver' || updates.name.toLowerCase().includes('silver')) {
-            updatedTier.thresholdAmount = 8000; // Force $80 for Silver tier
-          }
-        }
-        
         return updatedTier;
       }
       return tier;
@@ -503,11 +507,12 @@ export default function Index() {
     fetcher.submit(
       { 
         action: "saveSettings", 
-        tiers: JSON.stringify(sortedTiers)
+        tiers: JSON.stringify(sortedTiers),
+        progressBar: JSON.stringify(progressBarConfig)
       },
       { method: "POST" }
     );
-  }, [tiers, fetcher]);
+  }, [tiers, progressBarConfig, fetcher]);
 
   const formatPrice = (amount) => {
     return `$${(parseInt(amount) / 100).toFixed(2)}`;
@@ -600,18 +605,8 @@ export default function Index() {
                                 type="number"
                                 value={tier.thresholdAmount.toString()}
                                 onChange={(value) => handleUpdateTier(tierIndex, { thresholdAmount: parseInt(value) || 0 })}
-                                helpText={
-                                  tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')
-                                    ? "Gold tier threshold is fixed at $120 (12000 cents)"
-                                    : tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')
-                                    ? "Silver tier threshold is fixed at $80 (8000 cents)"
-                                    : `${formatPrice(tier.thresholdAmount)}`
-                                }
+                                helpText={`${formatPrice(tier.thresholdAmount)} - Cart total required to qualify for this tier`}
                                 placeholder="8000"
-                                disabled={
-                                  tier.name === 'Gold' || tier.name.toLowerCase().includes('gold') ||
-                                  tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')
-                                }
                               />
                             </Box>
                             <Box minWidth="150px">
@@ -920,6 +915,70 @@ export default function Index() {
                 {tiers.length > 0 && (
                   <>
                     <Divider />
+                    
+                    {/* Progress Bar Configuration */}
+                    <Card sectioned>
+                      <BlockStack gap="400">
+                        <Text as="h3" variant="headingMd">
+                          Progress Bar Configuration
+                        </Text>
+                        
+                        <Banner status="info">
+                          <p>
+                            Configure where the progress bar appears on your store. Enter a CSS selector to target a specific element, 
+                            then choose whether to place the progress bar above or below that element.
+                          </p>
+                        </Banner>
+
+                        <InlineStack gap="400">
+                          <Box minWidth="200px">
+                            <TextField
+                              label="CSS Selector"
+                              value={progressBarConfig.selector}
+                              onChange={(value) => setProgressBarConfig(prev => ({ ...prev, selector: value }))}
+                              placeholder="e.g., .cart__items, #cart, .product-form"
+                              helpText="Target element where progress bar should appear"
+                            />
+                          </Box>
+                          <Box minWidth="150px">
+                            <Select
+                              label="Position"
+                              options={[
+                                { label: 'Above', value: 'above' },
+                                { label: 'Below', value: 'below' }
+                              ]}
+                              value={progressBarConfig.position}
+                              onChange={(value) => setProgressBarConfig(prev => ({ ...prev, position: value }))}
+                            />
+                          </Box>
+                          <Box paddingBlockStart="600">
+                            <Button
+                              variant={progressBarConfig.enabled ? "primary" : "secondary"}
+                              onClick={() => setProgressBarConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                            >
+                              {progressBarConfig.enabled ? "Enabled" : "Disabled"}
+                            </Button>
+                          </Box>
+                        </InlineStack>
+
+                        {progressBarConfig.enabled && progressBarConfig.selector && (
+                          <Banner status="success">
+                            <p>
+                              Progress bar will appear <strong>{progressBarConfig.position}</strong> the element: <code>{progressBarConfig.selector}</code>
+                            </p>
+                          </Banner>
+                        )}
+
+                        {progressBarConfig.enabled && !progressBarConfig.selector && (
+                          <Banner status="warning">
+                            <p>
+                              Please enter a CSS selector to specify where the progress bar should appear.
+                            </p>
+                          </Banner>
+                        )}
+                      </BlockStack>
+                    </Card>
+
                     <InlineStack align="end">
                       <Button
                         variant="primary"
@@ -940,3 +999,199 @@ export default function Index() {
     </Page>
   );
 }
+
+// Create or update the automatic discount using the function extension
+async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
+  try {
+    console.log('🎯 Creating/updating automatic discount for GWP function');
+    console.log('🎯 Shop:', shop);
+    
+    // First, let's find and delete any existing GWP discounts from this app
+    const existingDiscountsQuery = `
+      query {
+        automaticDiscountNodes(first: 50) {
+          nodes {
+            id
+            automaticDiscount {
+              ... on DiscountAutomaticApp {
+                discountId
+                title
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const existingDiscountsResponse = await admin.graphql(existingDiscountsQuery);
+    const existingDiscountsData = await existingDiscountsResponse.json();
+    
+    console.log('🎯 Existing discounts found:', existingDiscountsData.data?.automaticDiscountNodes?.nodes?.length);
+
+    // Delete existing GWP discounts
+    for (const node of existingDiscountsData.data?.automaticDiscountNodes?.nodes || []) {
+      if (node?.automaticDiscount?.title?.toLowerCase().includes('gwp') || 
+          node?.automaticDiscount?.title?.toLowerCase().includes('gift')) {
+        
+        console.log(`🎯 Deleting existing discount: ${node.automaticDiscount.title} (ID: ${node.id})`);
+        
+        const deleteMutation = `
+          mutation discountAutomaticAppDelete($id: ID!) {
+            discountAutomaticAppDelete(input: { id: $id }) {
+              deletedAutomaticAppDiscountId
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const deleteResponse = await admin.graphql(deleteMutation, {
+          variables: {
+            id: node.id
+          }
+        });
+        
+        const deleteData = await deleteResponse.json();
+        console.log(`🎯 Delete response for ${node.automaticDiscount.title}:`, deleteData);
+        
+        if (deleteData.data?.discountAutomaticAppDelete?.userErrors?.length > 0) {
+          console.error(`🎯 Error deleting discount ${node.automaticDiscount.title}:`, deleteData.data.discountAutomaticAppDelete.userErrors);
+        } else {
+          console.log(`🎯 Successfully deleted discount: ${node.automaticDiscount.title}`);
+        }
+      }
+    }
+
+    // Wait a moment for deletion to complete
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Now create the new GWP discount
+    const createMutation = `
+      mutation discountAutomaticAppCreate($automaticAppDiscount: DiscountAutomaticAppInput!) {
+        discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+          automaticAppDiscount {
+            discountId
+            title
+            combinesWith {
+              orderDiscounts
+              productDiscounts
+              shippingDiscounts
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    // Get the function ID from the extension
+    const functionQuery = `
+      query {
+        shopifyFunctions(first: 50) {
+          nodes {
+            id
+            title
+            apiType
+          }
+        }
+      }
+    `;
+
+    const functionResponse = await admin.graphql(functionQuery);
+    const functionData = await functionResponse.json();
+    
+    console.log('🎯 Function Data:', functionData);
+    console.log('🎯 All available functions:', functionData.data?.shopifyFunctions?.nodes?.map(f => ({
+      id: f.id,
+      title: f.title,
+      apiType: f.apiType,
+    })));
+    
+    // Look for our specific function by title
+    let functionId = null;
+    if (functionData.data?.shopifyFunctions?.nodes?.length > 0) {
+      const gwpFunction = functionData.data.shopifyFunctions.nodes.find(node => 
+        node.title.toLowerCase().includes('gwp') || 
+        node.title.toLowerCase().includes('discount') ||
+        node.title.toLowerCase().includes('cart')
+      );
+      functionId = gwpFunction?.id;
+      console.log('🎯 Found GWP function:', gwpFunction);
+    }
+    
+    // Fallback to hardcoded ID if no function found
+    if (!functionId) {
+      functionId = "dba8b188-8a04-42ed-a0f8-e377732b79f4";
+      console.log('🎯 Using hardcoded function ID:', functionId);
+    }
+
+    if (!functionId) {
+      throw new Error("GWP discount function not found");
+    }
+
+    // Convert tiers to metafield format
+    const tiersConfig = tiers.map((tier, index) => ({
+      id: tier.id,
+      name: tier.name,
+      thresholdAmount: tier.thresholdAmount,
+      tag: `tier${index + 1}-gift`,
+      maxSelections: tier.maxSelections
+    }));
+
+    console.log('🎯 Creating discount with function ID:', functionId);
+    console.log('🎯 Tiers configuration:', tiersConfig);
+    
+    // Create a unique title with timestamp
+    const uniqueTitle = `GWP Tiered Discount ${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
+    
+    const createResponse = await admin.graphql(createMutation, {
+      variables: {
+        automaticAppDiscount: {
+          title: uniqueTitle,
+          functionId: functionId,
+          discountClasses: ["PRODUCT"],
+          startsAt: new Date().toISOString(),
+          combinesWith: {
+            orderDiscounts: true,
+            productDiscounts: true,
+            shippingDiscounts: true
+          },
+          metafields: [
+            {
+              namespace: "gwp",
+              key: "tiers",
+              type: "json",
+              value: JSON.stringify(tiersConfig)
+            }
+          ]
+        }
+      }
+    });
+
+    const createData = await createResponse.json();
+    
+    console.log('🎯 Create discount response:', createData);
+
+    if (createData.data?.discountAutomaticAppCreate?.userErrors?.length > 0) {
+      const errors = createData.data.discountAutomaticAppCreate.userErrors;
+      console.error('🎯 Discount creation errors:', errors);
+      throw new Error(`Failed to create discount: ${errors.map(e => `${e.field}: ${e.message}`).join(', ')}`);
+    }
+
+    if (createData.errors) {
+      console.error('🎯 GraphQL errors:', createData.errors);
+      throw new Error(`GraphQL errors: ${createData.errors.map(e => e.message).join(', ')}`);
+    }
+
+    console.log("Successfully created GWP discount:", createData.data?.discountAutomaticAppCreate?.automaticAppDiscount);
+  } catch (error) {
+    console.error('Error creating/updating automatic discount:', error);
+    throw error;
+  }
+}
+
+

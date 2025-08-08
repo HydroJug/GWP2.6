@@ -1,0 +1,42 @@
+query CartInput {
+  cart {
+    cost {
+      totalAmount {
+        amount
+        currencyCode
+      }
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+            productType
+            hasTags(tags: ["tier1-gift", "tier2-gift", "tier3-gift"]) {
+              hasTag
+              tag
+            }
+          }
+        }
+      }
+      cost {
+        subtotalAmount {
+          amount
+          currencyCode
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "gwp", key: "tiers") {
+      value
+    }
+  }
+}

@@ -39,6 +39,56 @@ function Extension() {
   const [lastCartTotal, setLastCartTotal] = useState(0);
   const [hasShownModalForTier, setHasShownModalForTier] = useState(new Set());
 
+  // Load GWP configuration on component mount
+  useEffect(() => {
+    const loadConfiguration = async () => {
+      try {
+        setConfigLoading(true);
+        setConfigError(null);
+        
+        // Get the shop domain from the current context
+        const shop = extension.target.shop?.domain;
+        if (!shop) {
+          console.error('No shop domain available');
+          setConfigError('Unable to determine shop domain');
+          setConfigLoading(false);
+          return;
+        }
+        
+        console.log('Loading GWP configuration for shop:', shop);
+        
+        // Fetch configuration from the public API
+        const response = await fetch(`/api/public/gwp-settings?shop=${shop}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch configuration: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('GWP configuration response:', data);
+        
+        if (!data.is_active) {
+          console.log('GWP is not active for this shop');
+          setAvailableTiers([]);
+          setConfigLoading(false);
+          return;
+        }
+        
+        const tiers = JSON.parse(data.tiers || '[]');
+        console.log('Parsed GWP tiers:', tiers);
+        
+        setAvailableTiers(tiers);
+        setConfigLoading(false);
+      } catch (error) {
+        console.error('Error loading GWP configuration:', error);
+        setConfigError(error.message);
+        setConfigLoading(false);
+      }
+    };
+    
+    loadConfiguration();
+  }, [extension.target.shop?.domain]);
+
   // Calculate cart total in cents
   const cartTotal = cartLines.reduce((total, line) => {
     return total + (line.cost.totalAmount.amount * 100);

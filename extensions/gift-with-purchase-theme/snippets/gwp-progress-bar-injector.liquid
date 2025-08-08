@@ -1,0 +1,8 @@
+{% comment %}
+  GWP Progress Bar Injector Snippet
+  This snippet loads the CSS and JavaScript needed for the dynamic progress bar
+  The progress bar will be injected based on the CSS selector configuration from admin settings
+{% endcomment %}
+
+{{ 'gwp-progress-bar.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'gwp-progress-bar-injector.js' | asset_url }}" defer></script> 

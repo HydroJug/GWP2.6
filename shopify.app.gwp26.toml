@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "2952012622e6ed0404f13f41b4734ee9"
+name = "gwp2.6"
+handle = "gwp2-12"
+application_url = "https://assuming-governing-minus-whether.trycloudflare.com"
+embedded = true
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-07"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_discounts,read_products,write_cart_transforms,write_discounts,write_products"
+
+[auth]
+redirect_urls = ["https://assuming-governing-minus-whether.trycloudflare.com/auth/callback", "https://assuming-governing-minus-whether.trycloudflare.com/auth/shopify/callback", "https://assuming-governing-minus-whether.trycloudflare.com/api/auth/callback"]
+
+[pos]
+embedded = false

@@ -20,7 +20,8 @@
     const config = {
       enabled: {{ block.settings.enabled | json }},
       delay: {{ block.settings.delay | json }},
-      debug: {{ block.settings.debug | json }}
+      debug: {{ block.settings.debug | json }},
+      appUrl: {{ block.settings.app_url | json }}
     };
     
     // Only load if enabled
@@ -38,24 +39,23 @@
       console.log('GWP Cart Modal: Document ready state:', document.readyState);
     }
     
-    // Create and load the cart modal script
-    const script = document.createElement('script');
-    script.src = `https://gwp-2-5.vercel.app/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
-    script.async = true;
-    script.onload = () => {
-      if (config.debug) {
-        console.log('GWP Cart Modal: Script loaded successfully');
-        console.log('GWP Cart Modal: GWP_CART_MODAL_LOADED:', window.GWP_CART_MODAL_LOADED);
-      }
-    };
-    script.onerror = (error) => {
-      if (config.debug) {
-        console.error('GWP Cart Modal: Failed to load script', error);
-      }
-    };
-    
-    // Add delay if specified
-    const loadScript = () => {
+    // Function to load the cart modal script
+    const loadCartModalScript = (appUrl) => {
+      const script = document.createElement('script');
+      script.src = `${appUrl}/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
+      script.async = true;
+      script.onload = () => {
+        if (config.debug) {
+          console.log('GWP Cart Modal: Script loaded successfully');
+          console.log('GWP Cart Modal: GWP_CART_MODAL_LOADED:', window.GWP_CART_MODAL_LOADED);
+        }
+      };
+      script.onerror = (error) => {
+        if (config.debug) {
+          console.error('GWP Cart Modal: Failed to load script', error);
+        }
+      };
+      
       try {
         document.head.appendChild(script);
         if (config.debug) {
@@ -66,6 +66,28 @@
           console.error('GWP Cart Modal: Error adding script to head:', error);
         }
       }
+    };
+    
+    // Get the app URL from config
+    const getAppUrl = () => {
+      if (config.appUrl && config.appUrl.trim()) {
+        if (config.debug) {
+          console.log('GWP Cart Modal: Using app URL:', config.appUrl);
+        }
+        return config.appUrl;
+      }
+      
+      // Fallback to localhost for development
+      if (config.debug) {
+        console.log('GWP Cart Modal: Using fallback localhost URL');
+      }
+      return 'http://localhost:3000';
+    };
+    
+    // Load the script with the correct URL
+    const loadScript = () => {
+      const appUrl = getAppUrl();
+      loadCartModalScript(appUrl);
     };
     
     if (config.delay && config.delay > 0) {
@@ -160,6 +182,13 @@
       "label": "Debug Mode",
       "default": false,
       "info": "Enable console logging for troubleshooting"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App URL",
+      "default": "https://errors-navigator-fisheries-bottom.trycloudflare.com",
+      "info": "Your app URL (e.g., https://your-tunnel-url.trycloudflare.com)"
     }
   ]
 }
