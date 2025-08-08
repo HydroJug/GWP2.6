@@ -55,17 +55,15 @@ export const loader = async ({ request }) => {
       const urlParams = new URLSearchParams(window.location.search);
       let shop = urlParams.get('shop');
       
-      // If no shop parameter, try to determine from current domain
-      if (!shop) {
-        const currentDomain = window.location.hostname;
-        if (currentDomain.includes('myshopify.com')) {
-          shop = currentDomain;
-        } else {
-          // For custom domains, we need to map to the myshopify.com domain
-          // For now, use the known mapping for this store
-          shop = 'hydrojug.myshopify.com';
-        }
+      // If no shop parameter or if it's a custom domain, use the myshopify.com domain
+      if (!shop || shop.includes('thehydrojug.com')) {
+        // Always use the myshopify.com domain for API calls
+        shop = 'hydrojug.myshopify.com';
       }
+      
+      debugLog('Original shop from URL params:', urlParams.get('shop'));
+      debugLog('Current domain:', window.location.hostname);
+      debugLog('Final shop for API calls:', shop);
       
       debugLog('Shop determined:', shop);
       debugLog('Current domain:', window.location.hostname);
