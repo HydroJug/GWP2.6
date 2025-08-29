@@ -120,10 +120,11 @@ function Extension() {
       // Double check tier thresholds
       let threshold = tier.thresholdAmount;
       if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
-        threshold = 12000; // Enforce $120
-      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
-        threshold = 8000; // Enforce $80
-      }
+        threshold = 7000; // Enforce $120
+      } 
+      // else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+      //   threshold = 8000; // Enforce $80
+      // }
       
       return cartTotal >= threshold;
     });
@@ -143,10 +144,11 @@ function Extension() {
       // Double check tier thresholds
       let threshold = tier.thresholdAmount;
       if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
-        threshold = 12000; // Enforce $120
-      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
-        threshold = 8000; // Enforce $80
-      }
+        threshold = 7000; // Enforce $120
+      } 
+      // else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+      //   threshold = 8000; // Enforce $80
+      // }
       
       // Skip if cart total is below threshold
       if (cartTotal < threshold) {

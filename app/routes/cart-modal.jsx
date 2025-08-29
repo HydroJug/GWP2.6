@@ -4,17 +4,16 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get('shop') || 'hydrojug.myshopify.com';
   
-  console.log('Cart modal loader called with shop:', shop);
-  console.log('Cart modal loader called with URL:', request.url);
+  /* cart modal loader - logs removed for cleanliness */
   
   // Generate the cart modal HTML/JS
   const cartModalScript = `
     (function() {
-      console.log('GWP Script: Starting to load...');
+      /* GWP Script: load start (debug disabled) */
       
       try {
         // Debug logging function that can be easily disabled
-        const DEBUG_ENABLED = true;
+        const DEBUG_ENABLED = false;
       function debugLog(message, data) {
         if (!DEBUG_ENABLED) return;
         if (data !== undefined) {
@@ -58,9 +57,7 @@ export const loader = async ({ request }) => {
       if (!shop) shop = currentDomain;
       
       // Do not hardcode; backend will map aliases to canonical shop
-      debugLog('Original shop from URL params:', urlParams.get('shop'));
-      debugLog('Current domain:', currentDomain);
-      debugLog('Final shop for API calls (alias OK):', shop);
+      // Debug suppressed
       
       // Unique namespace to avoid conflicts
       const GWP_NAMESPACE = 'gwp-modal-' + Date.now();
@@ -103,7 +100,7 @@ export const loader = async ({ request }) => {
       // Check if customer qualifies for gifts
       async function checkGiftEligibility(forceShow = false) {
         try {
-          debugLog('checkGiftEligibility called with forceShow:', forceShow);
+          // debug suppressed
           
           // Only check dismissal for auto-showing, not for manual triggers
           if (!forceShow && wasRecentlyDismissed()) {
@@ -118,9 +115,7 @@ export const loader = async ({ request }) => {
           }
           
           // For auto-show, use a simpler eligibility check that shows modal when first eligible
-          debugLog('Calling checkGiftEligibilityForAutoShow...');
           const eligibleTiers = await checkGiftEligibilityForAutoShow();
-          debugLog('checkGiftEligibilityForAutoShow returned:', eligibleTiers);
           
           if (eligibleTiers.length > 0 && !isModalOpen) {
             setTimeout(() => {
@@ -135,16 +130,16 @@ export const loader = async ({ request }) => {
       // Auto-show eligibility check - shows modal when customer has available selections
       async function checkGiftEligibilityForAutoShow() {
         try {
-          debugLog('checkGiftEligibilityForAutoShow: Starting eligibility check...');
+          // debug suppressed
           const cartTotal = await getCartTotal();
-          debugLog('checkGiftEligibilityForAutoShow: Cart total:', cartTotal, 'cents ($' + (cartTotal / 100).toFixed(2) + ')');
+          // debug suppressed
           
           if (!gwpConfig || !Array.isArray(gwpConfig)) {
-            debugLog('checkGiftEligibilityForAutoShow: No gwpConfig or not an array:', gwpConfig);
+            // debug suppressed
             return [];
           }
           
-          debugLog('checkGiftEligibilityForAutoShow: gwpConfig:', gwpConfig);
+          // debug suppressed
           
           // Check for non-GWP discount codes that would block gift eligibility
           const currentDiscountCodes = cartData?.discounts || [];
@@ -162,16 +157,14 @@ export const loader = async ({ request }) => {
           // Get eligible tiers based on cart total
           const eligibleTiers = gwpConfig.filter(tier => {
             const isEligible = cartTotal >= tier.thresholdAmount;
-            debugLog('checkGiftEligibilityForAutoShow: Tier', tier.name, 'threshold:', tier.thresholdAmount, 'eligible:', isEligible);
+            // debug suppressed
             return isEligible;
           });
           
-          debugLog('checkGiftEligibilityForAutoShow: Eligible tiers before sorting:', eligibleTiers);
           
           // Sort tiers by threshold amount (highest first) to prioritize higher tiers
           eligibleTiers.sort((a, b) => b.thresholdAmount - a.thresholdAmount);
           
-          debugLog('checkGiftEligibilityForAutoShow: Eligible tiers after sorting:', eligibleTiers);
           
           // Check if any of these tiers have available selections
           const tiersWithAvailableSelections = [];
@@ -1100,27 +1093,18 @@ export const loader = async ({ request }) => {
       // Fetch GWP configuration
       async function fetchGWPConfig() {
         try {
-          debugLog('Fetching GWP configuration...');
           // Get the current script URL to determine the app domain
           const scriptElement = document.currentScript || document.querySelector('script[src*="cart-modal"]');
           const scriptUrl = scriptElement ? scriptElement.src : window.location.href;
           const appUrl = new URL(scriptUrl).origin;
           
-          debugLog('App URL determined from script:', appUrl);
-          debugLog('Shop parameter:', shop);
           const timestamp = Date.now();
           const configUrl = appUrl + '/app/gwp/public/gwp-settings?shop=' + shop + '&v=' + timestamp;
-          debugLog('Config URL:', configUrl);
           const response = await fetch(configUrl);
-          debugLog('Config response status:', response.status);
-          debugLog('Config response URL:', response.url);
           const data = await response.json();
-          debugLog('GWP config response:', data);
-          debugLog('GWP config tiers:', data.tiers);
-          debugLog('GWP config message:', data.message);
           
           const tiers = data.tiers || [];
-          debugLog('Parsed tiers:', tiers);
+          
           
           // Log each tier's details
           tiers.forEach((tier, index) => {
@@ -2061,7 +2045,7 @@ export const loader = async ({ request }) => {
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 8000);
                   } else if (iconThresholdAmount === 7000) { // $70 - Legacy fallback, treat as Silver
                     isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 8000); // Map to $80 Silver tier
+                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 7000); // Map to $80 Silver tier
                   } else if (iconThresholdAmount === 10000) { // $100 Gold (legacy - map to $120)
                     isGiftTier = true;
                     matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 12000); // Map legacy $100 icons to $120 Gold tier
@@ -2587,7 +2571,7 @@ export const loader = async ({ request }) => {
                     debugLog('This is the $80 gift tier (Silver)', matchingTier);
                   } else if (iconThresholdAmount === 7000) { // $70 - Legacy fallback, treat as Silver
                     isGiftTier = true;
-                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 8000); // Map to $80 Silver tier
+                    matchingTier = gwpConfig.find(tier => tier.thresholdAmount === 7000); // Map to $80 Silver tier
                     debugLog('This is the legacy $70 icon, treating as $80 Silver tier', matchingTier);
                   } else if (iconThresholdAmount === 10000) { // $100 (legacy - map to $120)
                     isGiftTier = true;
@@ -5016,7 +5000,7 @@ export const loader = async ({ request }) => {
         openGWPModal: typeof window.openGWPModal
       });
       
-      console.log('GWP Script: Successfully loaded!');
+      /* GWP Script: loaded */
     } catch (error) {
       console.error('GWP Script: Error during initialization:', error);
     }

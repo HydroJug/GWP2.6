@@ -60,7 +60,7 @@ export const loader = async ({ request }) => {
     const url = new URL(request.url);
     const shop = url.searchParams.get('shop');
     
-    console.log('Config API called with shop:', shop);
+    // console.debug('Config API called with shop:', shop);
 
     if (!shop) {
       return json({
@@ -75,11 +75,11 @@ export const loader = async ({ request }) => {
     const resolvedKey = resolveShopKey(shop);
     const config = resolvedKey ? shopConfigs.get(resolvedKey) : null;
     
-    console.log('Config API called for shop:', shop);
-    console.log('Resolved key:', resolvedKey);
-    console.log('Available configs:', Array.from(shopConfigs.keys()));
-    console.log('Known aliases:', Array.from(aliasToShop.entries()));
-    console.log('Found config:', config);
+    // console.debug('Config API called for shop:', shop);
+    // console.debug('Resolved key:', resolvedKey);
+    // console.debug('Available configs:', Array.from(shopConfigs.keys()));
+    // console.debug('Known aliases:', Array.from(aliasToShop.entries()));
+    // console.debug('Found config:', config);
     
     if (config) {
       console.log('Returning configuration for shop:', shop);
@@ -100,7 +100,7 @@ export const loader = async ({ request }) => {
       const aliasKey = normalizeHost(shop);
       if (aliasKey && aliasKey !== onlyKey) {
         aliasToShop.set(aliasKey, onlyKey);
-        console.log('Alias learned:', aliasKey, '->', onlyKey);
+        // console.debug('Alias learned:', aliasKey, '->', onlyKey);
       }
       return json({
         tiers: fallbackConfig.tiers,
@@ -179,8 +179,8 @@ export const action = async ({ request }) => {
       }
     }
 
-    console.log('Configuration updated for shop:', canonicalKey);
-    console.log('Aliases now:', Array.from(aliasToShop.entries()));
+    // console.debug('Configuration updated for shop:', canonicalKey);
+    // console.debug('Aliases now:', Array.from(aliasToShop.entries()));
 
     return json({
       success: true,

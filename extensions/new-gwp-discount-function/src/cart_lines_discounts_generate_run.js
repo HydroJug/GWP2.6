@@ -24,17 +24,17 @@ export function cartLinesDiscountsGenerateRun(input) {
   // Get tier configuration from discount metafields
   let gwpConfig = {
     tiers: [
-      {
-        id: 'tier1',
-        name: 'Silver',
-        thresholdAmount: 8000, // Fallback values
-        tag: 'tier1-gift',
-        maxSelections: 1
-      },
+      // {
+      //   id: 'tier1',
+      //   name: 'Silver',
+      //   thresholdAmount: 8000, // Fallback values
+      //   tag: 'tier1-gift',
+      //   maxSelections: 1
+      // },
       {
         id: 'tier2', 
         name: 'Gold',
-        thresholdAmount: 12000, // Fallback values
+        thresholdAmount: 7000, // Fallback values
         tag: 'tier2-gift',
         maxSelections: 1
       }

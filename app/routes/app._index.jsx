@@ -278,12 +278,9 @@ export const action = async ({ request }) => {
       // Also save to our config API for public access
       try {
         const baseUrl = process.env.SHOPIFY_APP_URL || 'https://gwp-2-6.vercel.app';
-        console.log('Saving config to API for shop:', session.shop);
-        console.log('Config data:', {
-          tiers: tiers,
-          progressBar: progressBar,
-          isActive: true
-        });
+        // Admin save debug disabled
+        // console.debug('Saving config to API for shop:', session.shop);
+        // console.debug('Config data:', { tiers, progressBar, isActive: true });
 
         // Determine canonical storage key as the shop's primary domain host
         let primaryDomainHost = session.shop;
@@ -294,7 +291,7 @@ export const action = async ({ request }) => {
           if (host) {
             primaryDomainHost = host;
           }
-          console.log('Primary domain host resolved as:', primaryDomainHost);
+          // console.debug('Primary domain host resolved as:', primaryDomainHost);
         } catch (e) {
           console.error('Failed to fetch primary domain host, falling back to session.shop:', e);
         }
@@ -305,7 +302,7 @@ export const action = async ({ request }) => {
           primaryDomainHost,
           primaryDomainHost.startsWith('www.') ? primaryDomainHost.slice(4) : `www.${primaryDomainHost}`
         ]));
-        console.log('Aliases to save with config:', aliases);
+        // console.debug('Aliases to save with config:', aliases);
         
         const configResponse = await fetch(`${baseUrl}/app/gwp/config`, {
           method: 'POST',
@@ -325,9 +322,9 @@ export const action = async ({ request }) => {
         });
         
         if (configResponse.ok) {
-          console.log('Configuration saved to public API');
-          const responseData = await configResponse.json();
-          console.log('Config API response:', responseData);
+          // console.debug('Configuration saved to public API');
+          // const responseData = await configResponse.json();
+          // console.debug('Config API response:', responseData);
         } else {
           console.error('Failed to save configuration to public API:', configResponse.status);
           const errorText = await configResponse.text();
@@ -480,7 +477,7 @@ export default function Index() {
   const handleAddTier = useCallback(() => {
     const newTier = {
       id: `tier${Date.now()}`,
-              thresholdAmount: 12000, // $120 default
+      thresholdAmount: 7000, // $70 default
       name: `Tier ${tiers.length + 1}`,
       giftProductIds: [],
       giftProducts: [],

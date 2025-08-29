@@ -83,15 +83,15 @@ export const action = async ({ request }) => {
     const tier2Products = giftProducts.slice(4, 8);
 
     const tiers = [
-      {
-        id: "free-gift-tier-1",
-        name: "Silver",
-        thresholdAmount: 8000, // $80
-        description: "Free gift with $80+ purchase",
-        maxSelections: 1,
-        giftVariantIds: tier1Products.map(p => p.variantId),
-        giftProducts: tier1Products
-      }
+      // {
+      //   id: "free-gift-tier-1",
+      //   name: "Silver",
+      //   thresholdAmount: 8000, // $80
+      //   description: "Free gift with $80+ purchase",
+      //   maxSelections: 1,
+      //   giftVariantIds: tier1Products.map(p => p.variantId),
+      //   giftProducts: tier1Products
+      // }
     ];
 
     // Add second tier if we have enough products
@@ -99,8 +99,8 @@ export const action = async ({ request }) => {
       tiers.push({
         id: "free-gift-tier-2",
         name: "Gold",
-        thresholdAmount: 12000, // $120
-        description: "Additional free gift with $120+ purchase",
+        thresholdAmount: 7000, // $120
+        description: "Free gift with $70+ purchase",
         maxSelections: 1,
         giftVariantIds: tier2Products.map(p => p.variantId),
         giftProducts: tier2Products

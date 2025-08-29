@@ -17,14 +17,14 @@ async function fetchConfigFromShopify(shop) {
     
     // Try to fetch configuration from our config API
     const config = await fetchConfigFromAPI(shop);
-    console.log('fetchConfigFromAPI returned:', config);
+    // console.debug('fetchConfigFromAPI returned:', config);
     if (config) {
-      console.log('Successfully loaded configuration from API');
+      // console.debug('Successfully loaded configuration from API');
       return config;
     }
     
     // If no config found, return default
-    console.log('No configuration found, returning default');
+    // console.debug('No configuration found, returning default');
     return getDefaultConfig();
   } catch (error) {
     console.error('Error fetching config from Shopify:', error);
@@ -73,21 +73,21 @@ async function fetchConfigFromAPI(shop) {
 function getDefaultConfig() {
   return {
     tiers: [
-      {
-        id: 'tier1',
-        name: 'Silver',
-        thresholdAmount: 8000, // $80
-        description: 'Choose 1 free gift',
-        maxSelections: 1,
-        collectionId: null,
-        collectionHandle: null,
-        collectionTitle: null,
-        giftProducts: []
-      },
+      // {
+      //   id: 'tier1',
+      //   name: 'Silver',
+      //   thresholdAmount: 8000, // $80
+      //   description: 'Choose 1 free gift',
+      //   maxSelections: 1,
+      //   collectionId: null,
+      //   collectionHandle: null,
+      //   collectionTitle: null,
+      //   giftProducts: []
+      // },
       {
         id: 'tier2', 
         name: 'Gold',
-        thresholdAmount: 12000, // $120
+        thresholdAmount: 7000, // $120
         description: 'Choose 1 free gift',
         maxSelections: 1,
         collectionId: null,
@@ -119,7 +119,7 @@ export const loader = async ({ request }) => {
     const url = new URL(request.url);
     const shop = url.searchParams.get('shop');
     
-    console.log('Public API called with shop:', shop);
+    // console.debug('Public API called with shop:', shop);
 
     if (!shop) {
       console.log('No shop parameter provided, returning empty configuration');

@@ -33,7 +33,7 @@ export async function getGWPSettings(admin, shop) {
             console.log(`Migrating ${tier.name} tier from $100 (10000) to $120 (12000)`);
             return {
               ...tier,
-              thresholdAmount: 12000
+              thresholdAmount: 7000
             };
           }
           return tier;
