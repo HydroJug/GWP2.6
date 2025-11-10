@@ -8,6 +8,7 @@ api_version = "2025-04"
 [[extensions]]
 name = "gift-with-purchase-modal"
 handle = "gift-with-purchase-modal"
+uid = "8e04c7f7-3433-975f-713d-fd2b00dfa26de4f5c42f"
 type = "ui_extension"
 
 # Controls where in Shopify your extension will be injected,

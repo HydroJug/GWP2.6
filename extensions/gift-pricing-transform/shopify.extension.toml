@@ -3,6 +3,7 @@ api_version = "2025-01"
 [[extensions]]
 name = "t:name"
 handle = "gift-pricing-transform"
+uid = "d17e92b6-a46d-b4c9-c960-41eb166288984cfcf35d"
 type = "function"
 
 description = "t:description"
