@@ -1,6 +1,4 @@
 import { json } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
-import { getGWPSettings } from "../lib/storage.server";
 
 // Add CORS headers for checkout extension access
 const corsHeaders = {
