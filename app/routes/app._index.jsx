@@ -265,8 +265,48 @@ export const action = async ({ request }) => {
     console.log('Saving multi-tier settings:', { tiersData, progressBarData });
     
     try {
-      const tiers = JSON.parse(tiersData);
+      let tiers = JSON.parse(tiersData);
       const progressBar = progressBarData ? JSON.parse(progressBarData) : null;
+      
+      // For collection-based tiers, fetch the first product's image from each collection
+      const tiersWithImages = await Promise.all(tiers.map(async (tier) => {
+        // If tier uses a collection and doesn't have gift products, fetch collection image
+        if (tier.collectionHandle && (!tier.giftProducts || tier.giftProducts.length === 0)) {
+          try {
+            const collectionResponse = await admin.graphql(
+              `#graphql
+                query getCollectionProducts($handle: String!) {
+                  collectionByHandle(handle: $handle) {
+                    products(first: 1) {
+                      edges {
+                        node {
+                          featuredImage {
+                            url
+                          }
+                        }
+                      }
+                    }
+                  }
+                }`,
+              { variables: { handle: tier.collectionHandle } }
+            );
+            const collectionData = await collectionResponse.json();
+            const firstProduct = collectionData.data?.collectionByHandle?.products?.edges?.[0]?.node;
+            if (firstProduct?.featuredImage?.url) {
+              console.log(`Found collection image for tier ${tier.name}:`, firstProduct.featuredImage.url);
+              return {
+                ...tier,
+                collectionImageUrl: firstProduct.featuredImage.url
+              };
+            }
+          } catch (error) {
+            console.error(`Error fetching collection image for tier ${tier.name}:`, error);
+          }
+        }
+        return tier;
+      }));
+      
+      tiers = tiersWithImages;
       
       // Save to metafields
       await saveGWPSettings(admin, session.shop, {
@@ -359,6 +399,7 @@ export const action = async ({ request }) => {
             collectionId: tier.collectionId,
             collectionHandle: tier.collectionHandle,
             collectionTitle: tier.collectionTitle,
+            collectionImageUrl: tier.collectionImageUrl,
             // Keep product-based approach as fallback
             giftVariantIds: tier.giftVariantIds || [],
             giftProducts: tier.giftProducts || []
@@ -417,7 +458,8 @@ export default function Index() {
   const [progressBarConfig, setProgressBarConfig] = useState({
     enabled: settings.progressBar?.enabled ?? false,
     selector: settings.progressBar?.selector ?? '',
-    position: settings.progressBar?.position ?? 'below'
+    position: settings.progressBar?.position ?? 'below',
+    modalBehavior: settings.progressBar?.modalBehavior ?? 'auto'
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [collectionSearchQuery, setCollectionSearchQuery] = useState("");
@@ -989,7 +1031,7 @@ export default function Index() {
                           </p>
                         </Banner>
 
-                        <InlineStack gap="400">
+                        <InlineStack gap="400" wrap>
                           <Box minWidth="200px">
                             <TextField
                               label="CSS Selector"
@@ -1008,6 +1050,18 @@ export default function Index() {
                               ]}
                               value={progressBarConfig.position}
                               onChange={(value) => setProgressBarConfig(prev => ({ ...prev, position: value }))}
+                            />
+                          </Box>
+                          <Box minWidth="200px">
+                            <Select
+                              label="Modal Behavior"
+                              options={[
+                                { label: 'Auto-popup when threshold met', value: 'auto' },
+                                { label: 'Only on progress bar click', value: 'click' }
+                              ]}
+                              value={progressBarConfig.modalBehavior || 'auto'}
+                              onChange={(value) => setProgressBarConfig(prev => ({ ...prev, modalBehavior: value }))}
+                              helpText="When should the gift modal appear?"
                             />
                           </Box>
                           <Box paddingBlockStart="600">
@@ -1065,16 +1119,20 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
     console.log('🎯 Creating/updating automatic discount for GWP function');
     console.log('🎯 Shop:', shop);
     
-    // First, let's find and delete any existing GWP discounts from this app
+    // First, let's find and delete ANY existing GWP discounts from this app
+    // Query ALL automatic discounts to ensure we catch all of them
     const existingDiscountsQuery = `
       query {
-        automaticDiscountNodes(first: 50) {
+        discountNodes(first: 250) {
           nodes {
             id
-            automaticDiscount {
+            discount {
               ... on DiscountAutomaticApp {
-                discountId
                 title
+                status
+                appDiscountType {
+                  functionId
+                }
               }
             }
           }
@@ -1085,48 +1143,147 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
     const existingDiscountsResponse = await admin.graphql(existingDiscountsQuery);
     const existingDiscountsData = await existingDiscountsResponse.json();
     
-    console.log('🎯 Existing discounts found:', existingDiscountsData.data?.automaticDiscountNodes?.nodes?.length);
+    console.log('🎯 Raw GraphQL response:', JSON.stringify(existingDiscountsData, null, 2));
+    
+    const allDiscounts = existingDiscountsData.data?.discountNodes?.nodes || [];
+    console.log('🎯 Total discount nodes found:', allDiscounts.length);
+    console.log('🎯 All discounts:', JSON.stringify(allDiscounts.map(node => ({
+      nodeId: node.id,
+      hasDiscount: !!node.discount,
+      title: node.discount?.title,
+      status: node.discount?.status,
+      functionId: node.discount?.appDiscountType?.functionId,
+      fullDiscount: node.discount
+    })), null, 2));
 
-    // Delete existing GWP discounts
-    for (const node of existingDiscountsData.data?.automaticDiscountNodes?.nodes || []) {
-      if (node?.automaticDiscount?.title?.toLowerCase().includes('gwp') || 
-          node?.automaticDiscount?.title?.toLowerCase().includes('gift')) {
+    // Get the function ID first so we can match by it
+    const functionQuery = `
+      query {
+        shopifyFunctions(first: 50) {
+          nodes {
+            id
+            title
+            apiType
+          }
+        }
+      }
+    `;
+
+    const functionResponse = await admin.graphql(functionQuery);
+    const functionData = await functionResponse.json();
+    
+    // Look for our specific function by title
+    let targetFunctionId = null;
+    if (functionData.data?.shopifyFunctions?.nodes?.length > 0) {
+      const gwpFunction = functionData.data.shopifyFunctions.nodes.find(node => 
+        (node.title?.toLowerCase().includes('gwp') || 
+         node.title?.toLowerCase().includes('discount') ||
+         node.title?.toLowerCase().includes('cart')) &&
+        node.apiType === 'discount'
+      );
+      targetFunctionId = gwpFunction?.id;
+      console.log('🎯 Found target GWP function:', gwpFunction);
+    }
+    
+    // Fallback to hardcoded ID if no function found
+    if (!targetFunctionId) {
+      targetFunctionId = "dba8b188-8a04-42ed-a0f8-e377732b79f4";
+      console.log('🎯 Using hardcoded function ID:', targetFunctionId);
+    }
+
+    // Delete ALL discounts that match our function ID OR have GWP in the title
+    const deleteMutation = `
+      mutation discountAutomaticDelete($id: ID!) {
+        discountAutomaticDelete(id: $id) {
+          deletedAutomaticDiscountId
+          userErrors {
+            field
+            code
+            message
+          }
+        }
+      }
+    `;
+
+    let deletedCount = 0;
+    console.log('🎯 Target function ID for matching:', targetFunctionId);
+    
+    // Try to delete ALL discount nodes that match our criteria
+    // and handle errors gracefully (some might not be DiscountAutomaticApp types)
+    for (const node of allDiscounts) {
+      const discount = node?.discount;
+      const discountId = node.id;
+      
+      // Only process DiscountAutomaticApp types (app-managed discounts)
+      // If discount has appDiscountType field, it's a DiscountAutomaticApp
+      const discountFunctionId = discount?.appDiscountType?.functionId;
+      if (!discount || !discountFunctionId) {
+        console.log(`🎯 Skipping node ${discountId} - not a DiscountAutomaticApp (no appDiscountType)`);
+        continue;
+      }
+      
+      // Try to get discount info if available
+      const title = discount?.title?.toLowerCase() || '';
+      const status = discount?.status;
+      
+      console.log(`🎯 Checking node ${discountId}:`, {
+        hasDiscount: !!discount,
+        title: discount?.title || 'Unknown',
+        status: status || 'Unknown',
+        functionId: discountFunctionId || 'Unknown',
+        matchesFunctionId: discountFunctionId === targetFunctionId,
+        matchesTitle: title.includes('gwp') || title.includes('gift') || title.includes('tiered discount')
+      });
+      
+      // Delete if:
+      // 1. Uses the same functionId as our target function
+      // 2. OR title contains "GWP", "Gift", or "Tiered Discount" (case insensitive)
+      const matchesFunctionId = discountFunctionId === targetFunctionId;
+      const matchesTitle = title.includes('gwp') || title.includes('gift') || title.includes('tiered discount');
+      const shouldTryDelete = matchesFunctionId || matchesTitle;
+      
+      if (shouldTryDelete) {
+        console.log(`🎯 Attempting to delete discount node ${discountId} (Title: ${discount?.title || 'Unknown'}, Status: ${status || 'Unknown'})`);
         
-        console.log(`🎯 Deleting existing discount: ${node.automaticDiscount.title} (ID: ${node.id})`);
-        
-        const deleteMutation = `
-          mutation discountAutomaticAppDelete($id: ID!) {
-            discountAutomaticAppDelete(input: { id: $id }) {
-              deletedAutomaticAppDiscountId
-              userErrors {
-                field
-                message
-              }
+        try {
+          const deleteResponse = await admin.graphql(deleteMutation, {
+            variables: {
+              id: discountId
             }
+          });
+          
+          const deleteData = await deleteResponse.json();
+          
+          if (deleteData.data?.discountAutomaticDelete?.userErrors?.length > 0) {
+            const errors = deleteData.data.discountAutomaticDelete.userErrors;
+            console.error(`🎯 Error deleting node ${discountId}:`, errors);
+            // Don't count as deleted if there were errors
+          } else if (deleteData.data?.discountAutomaticDelete?.deletedAutomaticDiscountId) {
+            console.log(`🎯 Successfully deleted discount: ${discount?.title || discountId}`);
+            deletedCount++;
+          } else {
+            console.log(`🎯 Delete response for ${discountId}:`, deleteData);
           }
-        `;
-
-        const deleteResponse = await admin.graphql(deleteMutation, {
-          variables: {
-            id: node.id
-          }
-        });
-        
-        const deleteData = await deleteResponse.json();
-        console.log(`🎯 Delete response for ${node.automaticDiscount.title}:`, deleteData);
-        
-        if (deleteData.data?.discountAutomaticAppDelete?.userErrors?.length > 0) {
-          console.error(`🎯 Error deleting discount ${node.automaticDiscount.title}:`, deleteData.data.discountAutomaticAppDelete.userErrors);
-        } else {
-          console.log(`🎯 Successfully deleted discount: ${node.automaticDiscount.title}`);
+        } catch (error) {
+          console.error(`🎯 Exception deleting node ${discountId}:`, error.message);
+          // Continue - this might not be a DiscountAutomaticApp type
         }
       }
     }
+
+    console.log(`🎯 Deleted ${deletedCount} existing GWP discount(s)`);
 
     // Wait a moment for deletion to complete
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Now create the new GWP discount
+    // Use the function ID we already found earlier
+    const functionId = targetFunctionId;
+
+    if (!functionId) {
+      throw new Error("GWP discount function not found");
+    }
+
     const createMutation = `
       mutation discountAutomaticAppCreate($automaticAppDiscount: DiscountAutomaticAppInput!) {
         discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
@@ -1146,51 +1303,6 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
         }
       }
     `;
-
-    // Get the function ID from the extension
-    const functionQuery = `
-      query {
-        shopifyFunctions(first: 50) {
-          nodes {
-            id
-            title
-            apiType
-          }
-        }
-      }
-    `;
-
-    const functionResponse = await admin.graphql(functionQuery);
-    const functionData = await functionResponse.json();
-    
-    console.log('🎯 Function Data:', functionData);
-    console.log('🎯 All available functions:', functionData.data?.shopifyFunctions?.nodes?.map(f => ({
-      id: f.id,
-      title: f.title,
-      apiType: f.apiType,
-    })));
-    
-    // Look for our specific function by title
-    let functionId = null;
-    if (functionData.data?.shopifyFunctions?.nodes?.length > 0) {
-      const gwpFunction = functionData.data.shopifyFunctions.nodes.find(node => 
-        node.title.toLowerCase().includes('gwp') || 
-        node.title.toLowerCase().includes('discount') ||
-        node.title.toLowerCase().includes('cart')
-      );
-      functionId = gwpFunction?.id;
-      console.log('🎯 Found GWP function:', gwpFunction);
-    }
-    
-    // Fallback to hardcoded ID if no function found
-    if (!functionId) {
-      functionId = "dba8b188-8a04-42ed-a0f8-e377732b79f4";
-      console.log('🎯 Using hardcoded function ID:', functionId);
-    }
-
-    if (!functionId) {
-      throw new Error("GWP discount function not found");
-    }
 
     // Convert tiers to metafield format
     const tiersConfig = tiers.map((tier, index) => ({

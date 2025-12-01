@@ -17,4 +17,7 @@ module.exports = {
   serverModuleFormat: "cjs",
   dev: { port: process.env.HMR_SERVER_PORT || 8002 },
   future: {},
+  serverBuildPath: "build/server/index.js",
+  assetsBuildDirectory: "public/build",
+  publicPath: "/build/",
 };

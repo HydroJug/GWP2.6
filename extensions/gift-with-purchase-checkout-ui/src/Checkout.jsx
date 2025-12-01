@@ -25,8 +25,26 @@ export default reactExtension(
 );
 
 function Extension() {
+  const cartLines = useCartLines();
+  
+  // Calculate cart total in cents
+  const cartTotal = cartLines.reduce((total, line) => {
+    return total + (line.cost.totalAmount.amount * 100);
+  }, 0);
+  
+  // ALWAYS RENDER DEBUG BANNER FIRST
+  return (
+    <BlockStack spacing="base">
+      <Banner status="info">
+        <Text>🎁 GWP Extension IS RUNNING! Cart total: ${(cartTotal / 100).toFixed(2)} | Items: {cartLines.length}</Text>
+      </Banner>
+    </BlockStack>
+  );
+}
+
+function ExtensionOLD() {
   const translate = useTranslate();
-  const { extension } = useApi();
+  const { extension, query } = useApi();
   const cartLines = useCartLines();
   const applyCartLinesChange = useApplyCartLinesChange();
   const discountCodes = useDiscountCodes();
@@ -34,65 +52,23 @@ function Extension() {
   const [showModal, setShowModal] = useState(false);
   const [availableTiers, setAvailableTiers] = useState([]);
   const [selectedGifts, setSelectedGifts] = useState({});
+  const [tierProducts, setTierProducts] = useState({});
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
   const [lastCartTotal, setLastCartTotal] = useState(0);
   const [hasShownModalForTier, setHasShownModalForTier] = useState(new Set());
 
-  // Load GWP configuration on component mount
   useEffect(() => {
-    const loadConfiguration = async () => {
-      try {
-        setConfigLoading(true);
-        setConfigError(null);
-        
-        // Get the shop domain from the current context
-        const shop = extension.target.shop?.domain;
-        if (!shop) {
-          console.error('No shop domain available');
-          setConfigError('Unable to determine shop domain');
-          setConfigLoading(false);
-          return;
-        }
-        
-        console.log('Loading GWP configuration for shop:', shop);
-        
-        // Fetch configuration from the public API
-        const response = await fetch(`https://gwp-2-6.vercel.app/app/gwp/public/gwp-settings?shop=${shop}`);
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch configuration: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        console.log('GWP configuration response:', data);
-        
-        if (!data.is_active) {
-          console.log('GWP is not active for this shop');
-          setAvailableTiers([]);
-          setConfigLoading(false);
-          return;
-        }
-        
-        const tiers = data.tiers || [];
-        console.log('Parsed GWP tiers:', tiers);
-        
-        setAvailableTiers(tiers);
-        setConfigLoading(false);
-      } catch (error) {
-        console.error('Error loading GWP configuration:', error);
-        setConfigError(error.message);
-        setConfigLoading(false);
-      }
-    };
-    
-    loadConfiguration();
-  }, [extension.target.shop?.domain]);
+    console.log('🎁 GWP Extension loaded');
+    console.log('Cart lines:', cartLines);
+  }, []);
 
   // Calculate cart total in cents
   const cartTotal = cartLines.reduce((total, line) => {
     return total + (line.cost.totalAmount.amount * 100);
   }, 0);
+  
+  console.log('🎁 Cart total:', cartTotal);
 
   // Check if there are GWP items in cart
   const hasGWPItems = cartLines.some(line => {
@@ -120,11 +96,10 @@ function Extension() {
       // Double check tier thresholds
       let threshold = tier.thresholdAmount;
       if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
-        threshold = 7000; // Enforce $120
-      } 
-      // else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
-      //   threshold = 8000; // Enforce $80
-      // }
+        threshold = 12000; // Enforce $120
+      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+        threshold = 8000; // Enforce $80
+      }
       
       return cartTotal >= threshold;
     });
@@ -144,11 +119,10 @@ function Extension() {
       // Double check tier thresholds
       let threshold = tier.thresholdAmount;
       if (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold')) {
-        threshold = 7000; // Enforce $120
-      } 
-      // else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
-      //   threshold = 8000; // Enforce $80
-      // }
+        threshold = 12000; // Enforce $120
+      } else if (tier.name === 'Silver' || tier.name.toLowerCase().includes('silver')) {
+        threshold = 8000; // Enforce $80
+      }
       
       // Skip if cart total is below threshold
       if (cartTotal < threshold) {
@@ -234,6 +208,138 @@ function Extension() {
 
     setLastCartTotal(cartTotal);
   }, [cartTotal, availableTiers, configLoading]);
+
+  useEffect(() => {
+    if (configLoading || availableTiers.length === 0) {
+      return;
+    }
+
+    const fetchTierProducts = async () => {
+      const productsByTier = {};
+      
+      for (const tier of availableTiers) {
+        if (tier.collectionId || tier.collectionHandle) {
+          try {
+            
+            const graphqlQuery = `
+              query getCollectionProducts($id: ID!) {
+                collection(id: $id) {
+                  id
+                  title
+                  products(first: 10) {
+                    edges {
+                      node {
+                        id
+                        title
+                        featuredImage {
+                          url
+                          altText
+                        }
+                        variants(first: 10) {
+                          edges {
+                            node {
+                              id
+                              title
+                              price {
+                                amount
+                              }
+                              image {
+                                url
+                                altText
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+            
+            const { data } = await query(graphqlQuery, { 
+              variables: { id: tier.collectionId ? `gid://shopify/Collection/${tier.collectionId}` : null }
+            });
+            
+            
+            if (data?.collection?.products?.edges) {
+              const fetchedProducts = data.collection.products.edges.flatMap(edge => {
+                const product = edge.node;
+                return product.variants.edges.map(variantEdge => {
+                  const variant = variantEdge.node;
+                  return {
+                    variantId: variant.id.split('/').pop(),
+                    productId: product.id.split('/').pop(),
+                    title: `${product.title}${variant.title !== 'Default Title' ? ` - ${variant.title}` : ''}`,
+                    image: variant.image?.url || product.featuredImage?.url || 'https://via.placeholder.com/60x60?text=No+Image',
+                    price: (parseFloat(variant.price.amount) * 100).toFixed(0)
+                  };
+                });
+              });
+              
+              productsByTier[tier.id] = fetchedProducts;
+            } else {
+              productsByTier[tier.id] = [];
+            }
+          } catch (error) {
+            console.error(`Failed to fetch products for tier ${tier.name}:`, error);
+            productsByTier[tier.id] = [];
+          }
+        } else {
+          productsByTier[tier.id] = tier.giftProducts || [];
+        }
+      }
+      
+      setTierProducts(productsByTier);
+    };
+    
+    fetchTierProducts();
+  }, [configLoading, availableTiers, query]);
+
+  // Fetch configuration on mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        // Get shop domain from extension context with fallbacks
+        let shop = '';
+        
+        try {
+          // Try to get from extension context first
+          if (extension && extension.shop && extension.shop.domain) {
+            shop = extension.shop.domain;
+          } 
+          // If not available, try to get from window.location
+          else if (window && window.location && window.location.hostname) {
+            shop = window.location.hostname;
+          } 
+          // Last resort fallback
+          else {
+            shop = 'www.thehydrojug.com'; // Default to main shop as fallback
+          }
+        } catch (shopError) {
+          shop = 'www.thehydrojug.com'; // Fallback to main shop
+        }
+        
+        
+        const response = await fetch(`https://gwp-2-5.vercel.app/api/public/gwp-settings?shop=${shop}`);
+        const data = await response.json();
+        
+        if (data.tiers) {
+          const tiers = JSON.parse(data.tiers);
+          setAvailableTiers(tiers);
+          setConfigLoading(false);
+        } else {
+          throw new Error('No tier data received');
+        }
+      } catch (error) {
+        console.error('Failed to fetch GWP configuration:', error);
+        setConfigError(error.message || 'Unknown error');
+        setConfigLoading(false);
+      }
+    };
+
+    fetchConfig();
+  }, [extension]);
 
   // Get next tier threshold for progress indication
   const getNextTierThreshold = () => {
@@ -429,8 +535,10 @@ function Extension() {
   // Check if we should show the gift offer
   const availableSelections = getAvailableSelections();
   const showGiftOffer = Object.keys(availableSelections).length > 0 && !hasAnyDiscountCodes;
-  const highestTier = getHighestTier();
+  const unlockedTiers = getUnlockedTiers();
+  const highestTier = unlockedTiers.length > 0 ? unlockedTiers[0] : null;
   const nextTier = getNextTierThreshold();
+  
 
   // Show loading state while fetching configuration
   if (configLoading) {
@@ -478,7 +586,7 @@ function Extension() {
               🎁 {highestTier ? `${highestTier.name}: ${highestTier.description}` : "Free gifts available!"}
             </Text>
             <Text size="small">
-              {highestTier && `${highestTier.name}: ${highestTier.description}`}
+              {highestTier ? highestTier.description : "You've unlocked free gifts!"}
             </Text>
             <Button
               kind="secondary"
@@ -515,57 +623,65 @@ function Extension() {
                   </Text>
                   
                   <BlockStack spacing="none" padding={['extraTight', 'none', 'none', 'none']}>
-                    {(selection.tier.giftProducts || []).map(product => {
-                      // Ensure image URL is valid and properly formatted
-                      let imageUrl = product.image;
-                      
-                      // Handle relative URLs by making them absolute
-                      if (imageUrl && !imageUrl.startsWith('http')) {
-                        if (imageUrl.startsWith('//')) {
-                          imageUrl = 'https:' + imageUrl;
-                        } else if (imageUrl.startsWith('/')) {
-                          imageUrl = 'https://cdn.shopify.com' + imageUrl;
+                    {(tierProducts[tierId] || []).length > 0 ? (
+                      (tierProducts[tierId] || []).map(product => {
+                        // Ensure image URL is valid and properly formatted
+                        let imageUrl = product.image;
+                        
+                        // Handle relative URLs by making them absolute
+                        if (imageUrl && !imageUrl.startsWith('http')) {
+                          if (imageUrl.startsWith('//')) {
+                            imageUrl = 'https:' + imageUrl;
+                          } else if (imageUrl.startsWith('/')) {
+                            imageUrl = 'https://cdn.shopify.com' + imageUrl;
+                          }
                         }
-                      }
-                      
-                      // Fallback to placeholder if no valid image
-                      if (!imageUrl || !imageUrl.startsWith('http')) {
-                        imageUrl = `https://via.placeholder.com/60x60/cccccc/666666?text=${encodeURIComponent(product.title || 'Gift')}`;
-                      }
-                      
-                      return (
-                        <BlockStack key={product.variantId} spacing="extraTight" padding="extraTight">
-                          <InlineLayout spacing="tight" blockAlignment="center">
-                            <View>
-                              <Image
-                                source={imageUrl}
-                                accessibilityDescription={`${product.title} - Gift product`}
-                                aspectRatio={1}
-                                fit="cover"
-                                loading="eager"
-                                sizes="small"
-                              />
-                            </View>
-                            <BlockStack spacing="none">
-                              <Text size="extraSmall" emphasis="strong">
-                                {product.title || `Gift Product ${product.variantId}`}
-                              </Text>
-                              <Text size="extraSmall" appearance="subdued">
-                                Free with your purchase
-                              </Text>
-                            </BlockStack>
-                            <Button
-                              kind="secondary"
-                              size="extraSmall"
-                              disabled={selectedGifts[`${tierId}-${product.variantId}`]}
-                              onPress={() => handleSelectGift(product.variantId, tierId, product)}
-                            >
-                              {selectedGifts[`${tierId}-${product.variantId}`] ? 'Added' : 'Add'}
-                            </Button>
-                          </InlineLayout>
-                        </BlockStack>
-                      );
-                    })}
+                        
+                        // Fallback to placeholder if no valid image
+                        if (!imageUrl || !imageUrl.startsWith('http')) {
+                          imageUrl = `https://via.placeholder.com/60x60/cccccc/666666?text=${encodeURIComponent(product.title || 'Gift')}`;
+                        }
+                        
+                        return (
+                          <BlockStack key={product.variantId} spacing="extraTight" padding="extraTight">
+                            <InlineLayout spacing="tight" blockAlignment="center">
+                              <View>
+                                <Image
+                                  source={imageUrl}
+                                  accessibilityDescription={`${product.title} - Gift product`}
+                                  aspectRatio={1}
+                                  fit="cover"
+                                  loading="eager"
+                                  sizes="small"
+                                />
+                              </View>
+                              <BlockStack spacing="none">
+                                <Text size="extraSmall" emphasis="strong">
+                                  {product.title || `Gift Product ${product.variantId}`}
+                                </Text>
+                                <Text size="extraSmall" appearance="subdued">
+                                  Free with your purchase
+                                </Text>
+                              </BlockStack>
+                              <Button
+                                kind="secondary"
+                                size="extraSmall"
+                                disabled={selectedGifts[`${tierId}-${product.variantId}`]}
+                                onPress={() => handleSelectGift(product.variantId, tierId, product)}
+                              >
+                                {selectedGifts[`${tierId}-${product.variantId}`] ? 'Added' : 'Add'}
+                              </Button>
+                            </InlineLayout>
+                          </BlockStack>
+                        );
+                      })
+                    ) : (
+                      <BlockStack spacing="extraTight" padding="extraTight">
+                        <Text size="extraSmall" appearance="subdued">
+                          No gift products available for this tier. Fetching from {selection.tier.collectionHandle || 'unknown collection'}.
+                        </Text>
+                      </BlockStack>
+                    )}
                   </BlockStack>
                 </BlockStack>
               ))}
@@ -648,5 +764,12 @@ function Extension() {
     );
   }
 
-  return null;
+  // DEBUG: Always show a banner to verify extension is running
+  return (
+    <BlockStack spacing="base">
+      <Banner status="info">
+        <Text>🎁 GWP Extension is running! Cart total: ${(cartTotal / 100).toFixed(2)}</Text>
+      </Banner>
+    </BlockStack>
+  );
 }

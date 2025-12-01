@@ -35,14 +35,11 @@ async function fetchConfigFromShopify(shop) {
 // Fetch configuration from our config API
 async function fetchConfigFromAPI(shop) {
   try {
-    console.log('fetchConfigFromAPI: Starting fetch for shop:', shop);
     // Get the base URL for our app
     const baseUrl = process.env.SHOPIFY_APP_URL || 'https://gwp-2-6.vercel.app';
     const configUrl = `${baseUrl}/app/gwp/config?shop=${shop}`;
-    console.log('fetchConfigFromAPI: Fetching from URL:', configUrl);
     
     const response = await fetch(configUrl);
-    console.log('fetchConfigFromAPI: Response status:', response.status);
     
     if (!response.ok) {
       console.error('Failed to fetch config from API:', response.status);
@@ -50,10 +47,8 @@ async function fetchConfigFromAPI(shop) {
     }
     
     const data = await response.json();
-    console.log('fetchConfigFromAPI: Response data:', data);
     
     if (data.tiers && data.tiers.length > 0) {
-      console.log('fetchConfigFromAPI: Returning config with', data.tiers.length, 'tiers');
       return {
         tiers: data.tiers,
         progressBar: data.progressBar,
@@ -61,7 +56,6 @@ async function fetchConfigFromAPI(shop) {
       };
     }
     
-    console.log('fetchConfigFromAPI: No tiers found, returning null');
     return null;
   } catch (error) {
     console.error('Error fetching config from API:', error);

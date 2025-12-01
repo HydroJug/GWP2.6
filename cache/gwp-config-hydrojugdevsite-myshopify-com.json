@@ -1,7 +1,7 @@
 {
   "tiers": [
     {
-      "id": "tier1752784878108",
+      "id": "tier1",
       "name": "Silver",
       "thresholdAmount": 8000,
       "description": "Choose 1 free gift",
@@ -9,21 +9,29 @@
       "collectionId": "321777631422",
       "collectionHandle": "gwp-tier-1",
       "collectionTitle": "GWP Tier 1",
+      "collectionImageUrl": "https://cdn.shopify.com/s/files/1/0524/6792/5182/products/HJPPPCHMAIN.jpg?v=1609872306",
       "giftVariantIds": [],
       "giftProducts": []
     },
     {
-      "id": "tier1753297627907",
-      "name": "Gold",
-      "thresholdAmount": 12000,
+      "id": "tier1762898655801",
+      "name": "Gold Tier",
+      "thresholdAmount": 19000,
       "description": "Choose 1 free gift",
       "maxSelections": 1,
       "collectionId": "321777696958",
       "collectionHandle": "gwp-tier-2",
       "collectionTitle": "GWP Tier 2",
+      "collectionImageUrl": "https://cdn.shopify.com/s/files/1/0524/6792/5182/products/RouteShopifyProductV6.png?v=1609872209",
       "giftVariantIds": [],
       "giftProducts": []
     }
   ],
+  "progressBar": {
+    "enabled": true,
+    "selector": ".cart-drawer__header",
+    "position": "below",
+    "modalBehavior": "click"
+  },
   "isActive": true
 }

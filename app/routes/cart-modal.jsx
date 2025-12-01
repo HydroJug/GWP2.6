@@ -114,6 +114,12 @@ export const loader = async ({ request }) => {
             return;
           }
           
+          // Check modal behavior setting - if 'click' mode, don't auto-show
+          if (!forceShow && !shouldAutoShowModal()) {
+            debugLog('Modal behavior set to click-only, skipping auto-show...');
+            return;
+          }
+          
           // For auto-show, use a simpler eligibility check that shows modal when first eligible
           const eligibleTiers = await checkGiftEligibilityForAutoShow();
           
@@ -1090,6 +1096,9 @@ export const loader = async ({ request }) => {
         }
       }
       
+      // Store progress bar config for modal behavior
+      let progressBarSettings = null;
+      
       // Fetch GWP configuration
       async function fetchGWPConfig() {
         try {
@@ -1105,6 +1114,9 @@ export const loader = async ({ request }) => {
           
           const tiers = data.tiers || [];
           
+          // Store progress bar settings for modal behavior
+          progressBarSettings = data.progressBar || null;
+          console.log('🎁 GWP Modal: Progress bar settings loaded:', progressBarSettings);
           
           // Log each tier's details
           tiers.forEach((tier, index) => {
@@ -1124,6 +1136,17 @@ export const loader = async ({ request }) => {
           errorLog('Error fetching GWP config:', error);
           return [];
         }
+      }
+      
+      // Check if modal should auto-show based on settings
+      function shouldAutoShowModal() {
+        // If modalBehavior is 'click', don't auto-show
+        if (progressBarSettings?.modalBehavior === 'click') {
+          console.log('🎁 GWP Modal: Auto-show disabled (click mode)');
+          return false;
+        }
+        // Default to auto-show (backwards compatible)
+        return true;
       }
       
       // Fetch products from collection

@@ -1,10 +1,10 @@
 {% comment %}
   Gift with Purchase Cart Modal - App Embed Block
-  This block loads the cart modal functionality when enabled in the theme.
+  This block loads the cart modal functionality and progress bar injection when enabled in the theme.
 {% endcomment %}
 
 <script>
-  // Load the GWP cart modal script
+  // Load the GWP cart modal script and progress bar
   (function() {
     // Prevent loading multiple times
     if (window.gwpCartModalLoaded) {
@@ -24,20 +24,544 @@
       appUrl: {{ block.settings.app_url | json }}
     };
     
+    function debugLog(...args) {
+      if (config.debug) console.log('🎁 GWP:', ...args);
+    }
+    
     // Only load if enabled
     if (!config.enabled) {
-      if (config.debug) {
-        console.log('GWP Cart Modal: Disabled in settings');
-      }
+      debugLog('Disabled in settings');
       return;
     }
     
-    if (config.debug) {
-      console.log('GWP Cart Modal: Initializing...', config);
-      console.log('GWP Cart Modal: Shop domain:', shopDomain);
-      console.log('GWP Cart Modal: Current URL:', window.location.href);
-      console.log('GWP Cart Modal: Document ready state:', document.readyState);
+    debugLog('Initializing...', config);
+    debugLog('Shop domain:', shopDomain);
+    
+    // ============================================
+    // PROGRESS BAR INJECTION (using CSS selector from admin config)
+    // ============================================
+    
+    let gwpConfig = null;
+    let progressBarConfig = null;
+    let cartData = null;
+    let progressBarRetryCount = 0;
+    const MAX_RETRIES = 15;
+    const RETRY_DELAY = 1000;
+    
+    // Fetch GWP configuration from the app
+    async function fetchGWPConfig() {
+      try {
+        const shop = window.Shopify?.shop || shopDomain;
+        const appUrl = config.appUrl || 'https://gwp-2-6.vercel.app';
+        
+        debugLog('Fetching config for shop:', shop);
+        
+        const response = await fetch(`${appUrl}/app/gwp/public/gwp-settings?shop=${encodeURIComponent(shop)}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        gwpConfig = data;
+        progressBarConfig = data.progressBar;
+        
+        console.log('🎁 GWP: Config loaded:', {
+          tiersCount: gwpConfig.tiers?.length || 0,
+          progressBar: progressBarConfig
+        });
+        
+        return data;
+      } catch (error) {
+        console.error('🎁 GWP: Failed to load config:', error);
+        throw error;
+      }
     }
+    
+    // Get current cart data
+    async function getCartData() {
+      try {
+        const response = await fetch('/cart.js');
+        cartData = await response.json();
+        return cartData;
+      } catch (error) {
+        console.error('🎁 GWP: Error getting cart data:', error);
+        return { total_price: 0, items: [] };
+      }
+    }
+    
+    // Check if cart has a gift from a specific tier
+    function hasGiftFromTier(tierId, tierName) {
+      if (!cartData || !cartData.items) return false;
+      return cartData.items.some(item => {
+        const props = item.properties || {};
+        return props._gwp_tier_id === tierId || 
+               props._gwp_tier === tierName || 
+               props._gift_tier_id === tierId;
+      });
+    }
+    
+    // Get the gift product from cart for a tier
+    function getGiftFromCart(tierId, tierName) {
+      if (!cartData || !cartData.items) return null;
+      return cartData.items.find(item => {
+        const props = item.properties || {};
+        return props._gwp_tier_id === tierId || 
+               props._gwp_tier === tierName || 
+               props._gift_tier_id === tierId;
+      });
+    }
+    
+    // Inject progress bar at the CSS selector location
+    function injectProgressBar() {
+      if (!progressBarConfig || !progressBarConfig.enabled || !progressBarConfig.selector) {
+        debugLog('Progress bar not configured or disabled');
+        return;
+      }
+      
+      const selector = progressBarConfig.selector;
+      const position = progressBarConfig.position || 'below';
+      
+      debugLog(`Looking for element: "${selector}", position: ${position}`);
+      
+      // Check if already injected
+      if (document.getElementById('gwp-injected-progress-bar')) {
+        debugLog('Progress bar already exists, skipping injection');
+        return;
+      }
+      
+      // Wait for the target element to be available
+      const targetElement = document.querySelector(selector);
+      
+      if (!targetElement) {
+        progressBarRetryCount++;
+        console.log(`🎁 GWP: Looking for "${selector}" - attempt ${progressBarRetryCount}/${MAX_RETRIES}`);
+        
+        // Retry with limit
+        if (progressBarRetryCount < MAX_RETRIES) {
+          setTimeout(injectProgressBar, RETRY_DELAY);
+        } else {
+          console.warn(`🎁 GWP: Could not find element "${selector}" after ${MAX_RETRIES} attempts. Please verify the CSS selector in your app settings.`);
+        }
+        return;
+      }
+      
+      console.log('🎁 GWP: Target element found!', targetElement);
+      
+      // Create the progress bar container
+      const progressBarContainer = document.createElement('div');
+      progressBarContainer.className = 'gwp-progress-bar-container';
+      progressBarContainer.id = 'gwp-injected-progress-bar';
+      
+      // Insert the progress bar based on position
+      if (position === 'above') {
+        targetElement.parentNode.insertBefore(progressBarContainer, targetElement);
+        debugLog('Progress bar injected ABOVE target element');
+      } else {
+        targetElement.parentNode.insertBefore(progressBarContainer, targetElement.nextSibling);
+        debugLog('Progress bar injected BELOW target element');
+      }
+      
+      // Render the progress bar content
+      renderProgressBar();
+      
+      // Add styles
+      addProgressBarStyles();
+      
+      console.log('🎁 GWP: Progress bar injected and rendered successfully!');
+    }
+    
+    // Render the progress bar HTML
+    function renderProgressBar() {
+      const container = document.getElementById('gwp-injected-progress-bar');
+      if (!container || !gwpConfig || !gwpConfig.tiers || gwpConfig.tiers.length === 0) {
+        debugLog('Cannot render progress bar - container or tiers missing', { container: !!container, tiers: gwpConfig?.tiers?.length });
+        return;
+      }
+      
+      const cartTotal = cartData?.total_price || 0;
+      const tiers = gwpConfig.tiers.sort((a, b) => a.thresholdAmount - b.thresholdAmount);
+      const maxThreshold = Math.max(...tiers.map(t => t.thresholdAmount));
+      
+      // Find highest eligible tier and next tier
+      let highestEligibleTier = null;
+      let nextTier = null;
+      
+      for (const tier of tiers) {
+        if (cartTotal >= tier.thresholdAmount) {
+          highestEligibleTier = tier;
+        } else if (!nextTier) {
+          nextTier = tier;
+        }
+      }
+      
+      // Calculate progress
+      const progressPercentage = Math.min((cartTotal / maxThreshold) * 100, 100);
+      
+      // Build message
+      let messageHTML = '';
+      if (highestEligibleTier) {
+        const hasGift = hasGiftFromTier(highestEligibleTier.id, highestEligibleTier.name);
+        if (hasGift) {
+          messageHTML = `<span>${highestEligibleTier.name} Gift</span> Earned!`;
+          if (nextTier) {
+            const remaining = ((nextTier.thresholdAmount - cartTotal) / 100).toFixed(2);
+            messageHTML += ` Spend $${remaining} more for <span>${nextTier.name} Gift</span>`;
+          }
+        } else {
+          messageHTML = `<span>${highestEligibleTier.name} Gift</span> Earned! `;
+          messageHTML += `<span class="gwp-claim-now">Claim Now!</span>`;
+          if (nextTier) {
+            const remaining = ((nextTier.thresholdAmount - cartTotal) / 100).toFixed(2);
+            messageHTML += ` Spend $${remaining} more for <span>${nextTier.name} Gift</span>`;
+          }
+        }
+      } else if (tiers.length > 0) {
+        const firstTier = tiers[0];
+        const remaining = ((firstTier.thresholdAmount - cartTotal) / 100).toFixed(2);
+        messageHTML = `Spend $${remaining} more for <span>${firstTier.name} Gift</span>`;
+      }
+      
+      // Build tier icons HTML
+      let tierIconsHTML = '';
+      for (const tier of tiers) {
+        const tierPosition = (tier.thresholdAmount / maxThreshold) * 100;
+        const isComplete = cartTotal >= tier.thresholdAmount;
+        const hasGiftFromThis = hasGiftFromTier(tier.id, tier.name);
+        const giftInCart = getGiftFromCart(tier.id, tier.name);
+        
+        // Debug: log tier data to see what we have
+        console.log('🎁 GWP Tier data:', {
+          tierName: tier.name,
+          giftProductsCount: tier.giftProducts?.length || 0,
+          collectionHandle: tier.collectionHandle,
+          collectionImageUrl: tier.collectionImageUrl,
+          firstProduct: tier.giftProducts?.[0]
+        });
+        
+        // Get image URL - check multiple possible sources
+        let imageUrl = '';
+        if (giftInCart && giftInCart.image) {
+          imageUrl = giftInCart.image;
+        } else if (tier.giftProducts && tier.giftProducts.length > 0) {
+          // Try different image property paths for individual products
+          const firstProduct = tier.giftProducts[0];
+          imageUrl = firstProduct.featuredImage?.url || 
+                     firstProduct.imageUrl || 
+                     firstProduct.image?.url ||
+                     firstProduct.image ||
+                     '';
+          console.log('🎁 GWP Image URL from giftProducts:', imageUrl);
+        } else if (tier.collectionImageUrl) {
+          // Collection-based tier with saved image URL
+          imageUrl = tier.collectionImageUrl;
+          console.log('🎁 GWP Image URL from collection:', imageUrl);
+        } else if (tier.collectionHandle) {
+          // Collection-based tier but no image saved yet
+          console.log('🎁 GWP: Collection-based tier, no image saved. Re-save settings to fetch collection image.');
+        }
+        
+        const borderStyle = isComplete 
+          ? 'border: 2px solid #28a745; box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);' 
+          : 'border: 1px solid #ddd; background: #f9f9f9;';
+        
+        tierIconsHTML += `
+          <div class="gwp-progress-icon${isComplete ? ' complete' : ''}" 
+               style="left: ${tierPosition}%;" 
+               data-threshold="${tier.thresholdAmount}" 
+               data-tier-id="${tier.id}"
+               data-tier-name="${tier.name}">
+            ${imageUrl 
+              ? `<img src="${imageUrl}" alt="${tier.name} Gift" class="gwp-tier-image ${isComplete ? 'complete' : ''}">`
+              : `<div class="gwp-tier-placeholder ${isComplete ? 'complete' : ''}">🎁</div>`
+            }
+            <span class="gwp-tier-price">${formatMoney(tier.thresholdAmount)}</span>
+            ${hasGiftFromThis ? '<span class="gwp-change-gift-hint">Click to change</span>' : ''}
+          </div>
+        `;
+      }
+      
+      container.innerHTML = `
+        <div class="gwp-progress-message">${messageHTML}</div>
+        <div class="gwp-progress-bar-wrapper">
+          <div class="gwp-progress-bar-meter">
+            <div class="gwp-progress-bar-meter-fill" style="width: ${progressPercentage}%;"></div>
+          </div>
+          ${tierIconsHTML}
+        </div>
+      `;
+      
+      // Add click handlers
+      initProgressBarClickHandlers();
+    }
+    
+    // Format money (cents to dollars)
+    function formatMoney(cents) {
+      return '$' + (cents / 100).toFixed(0);
+    }
+    
+    // Initialize click handlers for progress bar
+    function initProgressBarClickHandlers() {
+      // Claim now button
+      document.querySelectorAll('.gwp-claim-now').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          openGiftModal();
+        });
+      });
+      
+      // Tier icons
+      document.querySelectorAll('.gwp-progress-icon').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          openGiftModal();
+        });
+      });
+    }
+    
+    // Add progress bar styles
+    function addProgressBarStyles() {
+      if (document.getElementById('gwp-progress-bar-styles')) return;
+      
+      const styles = document.createElement('style');
+      styles.id = 'gwp-progress-bar-styles';
+      styles.textContent = `
+        .gwp-progress-bar-container {
+          margin: 20px 0;
+          padding: 15px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border: 1px solid #e9ecef;
+        }
+        
+        .gwp-progress-message {
+          text-align: center;
+          margin-bottom: 15px;
+          font-size: 14px;
+          color: #495057;
+        }
+        
+        .gwp-progress-message span {
+          font-weight: bold;
+          color: #0161FE;
+        }
+        
+        .gwp-claim-now {
+          color: #0161FE !important;
+          font-weight: bold;
+          cursor: pointer;
+          text-decoration: underline;
+        }
+        
+        .gwp-claim-now:hover {
+          color: #0056d6 !important;
+        }
+        
+        .gwp-progress-bar-wrapper {
+          position: relative;
+          margin-top: 30px;
+          padding-bottom: 10px;
+        }
+        
+        .gwp-progress-bar-meter {
+          height: 8px;
+          background: #e9ecef;
+          border-radius: 4px;
+          overflow: hidden;
+          position: relative;
+        }
+        
+        .gwp-progress-bar-meter-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #0161FE, #0056d6);
+          border-radius: 4px;
+          transition: width 0.3s ease;
+        }
+        
+        .gwp-progress-icon {
+          position: absolute;
+          top: -18px;
+          transform: translateX(-50%);
+          text-align: center;
+          transition: all 0.3s ease;
+          cursor: pointer;
+          padding: 5px;
+          border-radius: 50%;
+        }
+        
+        .gwp-progress-icon:hover {
+          background: rgba(1, 97, 254, 0.1);
+          transform: translateX(-50%) scale(1.1);
+        }
+        
+        .gwp-progress-icon:active {
+          transform: translateX(-50%) scale(0.95);
+        }
+        
+        .gwp-tier-image {
+          width: 35px;
+          height: 35px;
+          min-width: 35px;
+          min-height: 35px;
+          max-width: 35px;
+          max-height: 35px;
+          border-radius: 50%;
+          object-fit: cover;
+          border: 1px solid #ddd;
+          background: #f9f9f9;
+        }
+        
+        .gwp-tier-image.complete {
+          border: 2px solid #28a745;
+          box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+        }
+        
+        .gwp-tier-placeholder {
+          width: 35px;
+          height: 35px;
+          min-width: 35px;
+          min-height: 35px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          border: 1px solid #ddd;
+          background: #f9f9f9;
+        }
+        
+        .gwp-tier-placeholder.complete {
+          border: 2px solid #28a745;
+          box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+        }
+        
+        .gwp-tier-price {
+          display: block;
+          font-size: 11px;
+          font-weight: bold;
+          margin-top: 5px;
+          color: #495057;
+        }
+        
+        .gwp-progress-icon.complete .gwp-tier-price {
+          color: #28a745;
+        }
+        
+        .gwp-change-gift-hint {
+          font-size: 9px;
+          color: #0161FE;
+          display: block;
+          margin-top: 2px;
+        }
+      `;
+      document.head.appendChild(styles);
+    }
+    
+    // Update progress bar with current cart data
+    async function updateProgressBar() {
+      await getCartData();
+      
+      // Check if progress bar still exists, if not re-inject it
+      const existingBar = document.getElementById('gwp-injected-progress-bar');
+      if (!existingBar) {
+        console.log('🎁 GWP: Progress bar was removed, re-injecting...');
+        progressBarRetryCount = 0; // Reset retry count
+        injectProgressBar();
+      } else {
+        renderProgressBar();
+      }
+    }
+    
+    // Monitor cart updates
+    function monitorCartUpdates() {
+      // Listen for common cart update events
+      document.addEventListener('cart:updated', updateProgressBar);
+      document.addEventListener('cart:refresh', updateProgressBar);
+      document.addEventListener('cart:change', updateProgressBar);
+      document.addEventListener('ajaxCart:updated', updateProgressBar);
+      
+      // Intercept fetch calls to /cart endpoints
+      const originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+        const url = args[0]?.toString() || '';
+        
+        // Check if this is a cart-related request
+        if (url.includes('/cart/add') || 
+            url.includes('/cart/change') || 
+            url.includes('/cart/update') ||
+            url.includes('/cart/clear')) {
+          console.log('🎁 GWP: Cart fetch detected, updating progress bar...');
+          // Wait a moment for the DOM to update, then refresh
+          setTimeout(updateProgressBar, 500);
+          setTimeout(updateProgressBar, 1500);
+        }
+        
+        return response;
+      };
+      
+      // Intercept XMLHttpRequest for older themes
+      const originalXHROpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._gwpUrl = url;
+        return originalXHROpen.apply(this, arguments);
+      };
+      
+      const originalXHRSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+          if (this._gwpUrl && (
+            this._gwpUrl.includes('/cart/add') ||
+            this._gwpUrl.includes('/cart/change') ||
+            this._gwpUrl.includes('/cart/update') ||
+            this._gwpUrl.includes('/cart/clear')
+          )) {
+            console.log('🎁 GWP: Cart XHR detected, updating progress bar...');
+            setTimeout(updateProgressBar, 500);
+            setTimeout(updateProgressBar, 1500);
+          }
+        });
+        return originalXHRSend.apply(this, arguments);
+      };
+      
+      // Use MutationObserver to detect when progress bar is removed
+      const observer = new MutationObserver((mutations) => {
+        const existingBar = document.getElementById('gwp-injected-progress-bar');
+        if (!existingBar && progressBarConfig?.enabled && progressBarConfig?.selector) {
+          console.log('🎁 GWP: Progress bar removed from DOM, re-injecting...');
+          progressBarRetryCount = 0;
+          setTimeout(injectProgressBar, 100);
+        }
+      });
+      
+      // Observe the body for changes
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+      
+      // Poll for updates (fallback) - also checks if bar needs re-injection
+      setInterval(updateProgressBar, 3000);
+      
+      console.log('🎁 GWP: Cart monitoring initialized');
+    }
+    
+    // Open the gift modal
+    function openGiftModal() {
+      debugLog('Opening gift modal...');
+      // Trigger the cart modal to open with force flag
+      const event = new CustomEvent('gwp:open-modal', { detail: { force: true } });
+      document.dispatchEvent(event);
+      
+      // Also try the legacy method - pass true to force show (bypasses click-only setting)
+      if (window.gwpCheckEligibility) {
+        window.gwpCheckEligibility(true);
+      }
+    }
+    
+    // ============================================
+    // CART MODAL SCRIPT LOADING
+    // ============================================
     
     // Function to load the cart modal script
     const loadCartModalScript = (appUrl) => {
@@ -45,109 +569,88 @@
       script.src = `${appUrl}/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
       script.async = true;
       script.onload = () => {
-        if (config.debug) {
-          console.log('GWP Cart Modal: Script loaded successfully');
-          console.log('GWP Cart Modal: GWP_CART_MODAL_LOADED:', window.GWP_CART_MODAL_LOADED);
-        }
+        debugLog('Cart modal script loaded successfully');
       };
       script.onerror = (error) => {
-        if (config.debug) {
-          console.error('GWP Cart Modal: Failed to load script', error);
-        }
+        console.error('🎁 GWP: Failed to load cart modal script', error);
       };
       
       try {
         document.head.appendChild(script);
-        if (config.debug) {
-          console.log('GWP Cart Modal: Script tag added to head');
-        }
+        debugLog('Cart modal script tag added to head');
       } catch (error) {
-        if (config.debug) {
-          console.error('GWP Cart Modal: Error adding script to head:', error);
-        }
+        console.error('🎁 GWP: Error adding script to head:', error);
       }
     };
     
     // Get the app URL from config
     const getAppUrl = () => {
       if (config.appUrl && config.appUrl.trim()) {
-        if (config.debug) {
-          console.log('GWP Cart Modal: Using app URL:', config.appUrl);
-        }
         return config.appUrl;
       }
-      
-      // Fallback to localhost for development
-      if (config.debug) {
-        console.log('GWP Cart Modal: Using fallback localhost URL');
-      }
-      return 'http://localhost:3000';
+      return 'https://gwp-2-6.vercel.app';
     };
     
-    // Load the script with the correct URL
-    const loadScript = () => {
+    // Main initialization
+    const initialize = async () => {
       const appUrl = getAppUrl();
+      
+      // Load the cart modal script
       loadCartModalScript(appUrl);
+      
+      // Fetch config and cart data
+      try {
+        await fetchGWPConfig();
+        await getCartData();
+        
+        // Inject progress bar if configured
+        if (progressBarConfig && progressBarConfig.enabled && progressBarConfig.selector) {
+          console.log('🎁 GWP: Progress bar configured, will inject at:', progressBarConfig.selector, 'position:', progressBarConfig.position);
+          injectProgressBar();
+          monitorCartUpdates();
+        } else {
+          console.log('🎁 GWP: Progress bar not enabled or no selector configured. Config:', progressBarConfig);
+        }
+      } catch (error) {
+        console.error('🎁 GWP: Error during initialization:', error);
+      }
     };
     
+    // Start initialization with optional delay
     if (config.delay && config.delay > 0) {
-      if (config.debug) {
-        console.log('GWP Cart Modal: Delaying script load by', config.delay, 'ms');
-      }
-      setTimeout(loadScript, config.delay);
+      debugLog('Delaying initialization by', config.delay, 'ms');
+      setTimeout(initialize, config.delay);
     } else {
-      loadScript();
+      // Wait for DOM to be ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+      } else {
+        initialize();
+      }
     }
     
     // Add cleanup on page unload
     window.addEventListener('beforeunload', () => {
-      // Find and call the cleanup function with the unique namespace
       Object.keys(window).forEach(key => {
         if (key.startsWith('cleanupGWP_gwp-modal-') && typeof window[key] === 'function') {
           try {
             window[key]();
-            if (config.debug) {
-              console.log('GWP Cart Modal: Cleanup function called:', key);
-            }
+            debugLog('Cleanup function called:', key);
           } catch (error) {
-            if (config.debug) {
-              console.error('GWP Cart Modal: Error calling cleanup function:', error);
-            }
+            console.error('🎁 GWP: Error calling cleanup function:', error);
           }
         }
       });
     });
     
-    // Debug cart information if debug mode is enabled
+    // Debug information
     if (config.debug) {
       setTimeout(() => {
-        console.log('GWP Cart Modal Debug Info:');
+        console.log('🎁 GWP Debug Info:');
         console.log('- Shopify object:', window.Shopify);
-        console.log('- Shopify.cart:', window.Shopify?.cart);
-        console.log('- window.cart:', window.cart);
-        
-        // Try to detect cart total
-        const selectors = [
-          '[data-cart-total]',
-          '.cart-total',
-          '.cart__total-price',
-          '.cart-drawer__total',
-          '.cart-subtotal',
-          '.totals__total-value',
-          '.cart__total',
-          '.total-price',
-          '[data-total-price]',
-          '.cart-total-price',
-          '.cart__subtotal',
-          '.subtotal-price'
-        ];
-        
-        selectors.forEach(selector => {
-          const element = document.querySelector(selector);
-          if (element) {
-            console.log(`- Found cart element ${selector}:`, element.textContent);
-          }
-        });
+        console.log('- Config:', gwpConfig);
+        console.log('- Progress bar config:', progressBarConfig);
+        console.log('- Cart data:', cartData);
       }, 3000);
     }
   })();
@@ -161,9 +664,9 @@
     {
       "type": "checkbox",
       "id": "enabled",
-      "label": "Enable Cart Modal",
+      "label": "Enable GWP",
       "default": true,
-      "info": "Show the gift selection modal when customers reach the gift threshold"
+      "info": "Enable the gift modal and progress bar. Progress bar placement is configured in the app admin."
     },
     {
       "type": "range",
@@ -172,9 +675,9 @@
       "max": 5000,
       "step": 500,
       "unit": "ms",
-      "label": "Modal delay",
+      "label": "Load delay",
       "default": 1000,
-      "info": "Delay before loading the modal script"
+      "info": "Delay before loading GWP functionality"
     },
     {
       "type": "checkbox",
@@ -187,9 +690,9 @@
       "type": "text",
       "id": "app_url",
       "label": "App URL",
-      "default": "https://errors-navigator-fisheries-bottom.trycloudflare.com",
-      "info": "Your app URL (e.g., https://your-tunnel-url.trycloudflare.com)"
+      "default": "https://gwp-2-6.vercel.app",
+      "info": "Your GWP app URL"
     }
   ]
 }
-{% endschema %} 
+{% endschema %}
