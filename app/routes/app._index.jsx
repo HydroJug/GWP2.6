@@ -459,7 +459,11 @@ export default function Index() {
     enabled: settings.progressBar?.enabled ?? false,
     selector: settings.progressBar?.selector ?? '',
     position: settings.progressBar?.position ?? 'below',
-    modalBehavior: settings.progressBar?.modalBehavior ?? 'auto'
+    modalBehavior: settings.progressBar?.modalBehavior ?? 'auto',
+    freeShipping: {
+      enabled: settings.progressBar?.freeShipping?.enabled ?? false,
+      threshold: settings.progressBar?.freeShipping?.threshold ?? 10000 // $100 default
+    }
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [collectionSearchQuery, setCollectionSearchQuery] = useState("");
@@ -1086,6 +1090,54 @@ export default function Index() {
                           <Banner status="warning">
                             <p>
                               Please enter a CSS selector to specify where the progress bar should appear.
+                            </p>
+                          </Banner>
+                        )}
+
+                        <Divider />
+                        
+                        <Text as="h4" variant="headingSm">
+                          Free Shipping Indicator
+                        </Text>
+                        
+                        <InlineStack gap="400" blockAlign="center">
+                          <Box minWidth="200px">
+                            <TextField
+                              label="Free Shipping Threshold"
+                              type="number"
+                              value={String(progressBarConfig.freeShipping?.threshold / 100 || 100)}
+                              onChange={(value) => setProgressBarConfig(prev => ({ 
+                                ...prev, 
+                                freeShipping: { 
+                                  ...prev.freeShipping, 
+                                  threshold: Math.round(parseFloat(value || 0) * 100) 
+                                } 
+                              }))}
+                              prefix="$"
+                              helpText="Cart total needed for free shipping"
+                            />
+                          </Box>
+                          <Box paddingBlockStart="400">
+                            <Button
+                              variant={progressBarConfig.freeShipping?.enabled ? "primary" : "secondary"}
+                              onClick={() => setProgressBarConfig(prev => ({ 
+                                ...prev, 
+                                freeShipping: { 
+                                  ...prev.freeShipping, 
+                                  enabled: !prev.freeShipping?.enabled 
+                                } 
+                              }))}
+                            >
+                              {progressBarConfig.freeShipping?.enabled ? "Enabled" : "Disabled"}
+                            </Button>
+                          </Box>
+                        </InlineStack>
+
+                        {progressBarConfig.freeShipping?.enabled && (
+                          <Banner status="info">
+                            <p>
+                              Free shipping indicator will appear at <strong>${(progressBarConfig.freeShipping?.threshold / 100).toFixed(2)}</strong> with a truck icon. 
+                              Remember to configure the actual free shipping discount in Shopify's admin.
                             </p>
                           </Banner>
                         )}

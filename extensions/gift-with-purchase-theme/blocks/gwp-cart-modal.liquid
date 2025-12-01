@@ -66,7 +66,7 @@
         gwpConfig = data;
         progressBarConfig = data.progressBar;
         
-        console.log('🎁 GWP: Config loaded:', {
+        debugLog('Config loaded:', {
           tiersCount: gwpConfig.tiers?.length || 0,
           progressBar: progressBarConfig
         });
@@ -135,7 +135,7 @@
       
       if (!targetElement) {
         progressBarRetryCount++;
-        console.log(`🎁 GWP: Looking for "${selector}" - attempt ${progressBarRetryCount}/${MAX_RETRIES}`);
+        debugLog(`Looking for "${selector}" - attempt ${progressBarRetryCount}/${MAX_RETRIES}`);
         
         // Retry with limit
         if (progressBarRetryCount < MAX_RETRIES) {
@@ -146,7 +146,7 @@
         return;
       }
       
-      console.log('🎁 GWP: Target element found!', targetElement);
+      debugLog('Target element found:', targetElement);
       
       // Create the progress bar container
       const progressBarContainer = document.createElement('div');
@@ -168,7 +168,7 @@
       // Add styles
       addProgressBarStyles();
       
-      console.log('🎁 GWP: Progress bar injected and rendered successfully!');
+      debugLog('Progress bar injected and rendered successfully!');
     }
     
     // Render the progress bar HTML
@@ -179,9 +179,21 @@
         return;
       }
       
+      // Update last cart total to prevent unnecessary re-renders
+      lastCartTotal = cartData?.total_price;
+      
       const cartTotal = cartData?.total_price || 0;
       const tiers = gwpConfig.tiers.sort((a, b) => a.thresholdAmount - b.thresholdAmount);
-      const maxThreshold = Math.max(...tiers.map(t => t.thresholdAmount));
+      
+      // Check for free shipping config
+      const freeShipping = progressBarConfig?.freeShipping;
+      const hasFreeShipping = freeShipping?.enabled && freeShipping?.threshold > 0;
+      
+      // Calculate max threshold including free shipping if enabled
+      let maxThreshold = Math.max(...tiers.map(t => t.thresholdAmount));
+      if (hasFreeShipping && freeShipping.threshold > maxThreshold) {
+        maxThreshold = freeShipping.threshold;
+      }
       
       // Find highest eligible tier and next tier
       let highestEligibleTier = null;
@@ -195,31 +207,78 @@
         }
       }
       
-      // Calculate progress
+      // Check free shipping eligibility
+      const hasFreeShippingEarned = hasFreeShipping && cartTotal >= freeShipping.threshold;
+      
+      // Calculate progress (use highest threshold as max)
       const progressPercentage = Math.min((cartTotal / maxThreshold) * 100, 100);
+      
+      // Build all milestones (free shipping + gift tiers) sorted by threshold
+      let allMilestones = tiers.map(t => ({ 
+        type: 'gift', 
+        threshold: t.thresholdAmount, 
+        name: t.name,
+        id: t.id 
+      }));
+      
+      if (hasFreeShipping) {
+        allMilestones.push({ 
+          type: 'shipping', 
+          threshold: freeShipping.threshold, 
+          name: 'Free Shipping' 
+        });
+      }
+      
+      // Sort milestones by threshold
+      allMilestones.sort((a, b) => a.threshold - b.threshold);
+      
+      // Find earned milestones and next milestone
+      const earnedMilestones = allMilestones.filter(m => cartTotal >= m.threshold);
+      const nextMilestone = allMilestones.find(m => cartTotal < m.threshold);
       
       // Build message
       let messageHTML = '';
-      if (highestEligibleTier) {
-        const hasGift = hasGiftFromTier(highestEligibleTier.id, highestEligibleTier.name);
-        if (hasGift) {
-          messageHTML = `<span>${highestEligibleTier.name} Gift</span> Earned!`;
-          if (nextTier) {
-            const remaining = ((nextTier.thresholdAmount - cartTotal) / 100).toFixed(2);
-            messageHTML += ` Spend $${remaining} more for <span>${nextTier.name} Gift</span>`;
-          }
+      
+      if (earnedMilestones.length === 0 && nextMilestone) {
+        // Haven't earned anything yet - show next milestone
+        const remaining = ((nextMilestone.threshold - cartTotal) / 100).toFixed(2);
+        if (nextMilestone.type === 'shipping') {
+          messageHTML = `Spend $${remaining} more for <span>Free Shipping</span>`;
         } else {
-          messageHTML = `<span>${highestEligibleTier.name} Gift</span> Earned! `;
-          messageHTML += `<span class="gwp-claim-now">Claim Now!</span>`;
-          if (nextTier) {
-            const remaining = ((nextTier.thresholdAmount - cartTotal) / 100).toFixed(2);
-            messageHTML += ` Spend $${remaining} more for <span>${nextTier.name} Gift</span>`;
+          messageHTML = `Spend $${remaining} more for <span>${nextMilestone.name} Gift</span>`;
+        }
+      } else if (earnedMilestones.length > 0) {
+        // Show what was earned
+        const earnedGifts = earnedMilestones.filter(m => m.type === 'gift');
+        const earnedShipping = earnedMilestones.find(m => m.type === 'shipping');
+        
+        // Show highest earned gift
+        if (earnedGifts.length > 0) {
+          const highestGift = earnedGifts[earnedGifts.length - 1];
+          const hasGift = hasGiftFromTier(highestGift.id, highestGift.name);
+          
+          if (hasGift) {
+            messageHTML = `<span>${highestGift.name} Gift</span> Earned!`;
+          } else {
+            messageHTML = `<span>${highestGift.name} Gift</span> Earned! <span class="gwp-claim-now">Claim Now!</span>`;
           }
         }
-      } else if (tiers.length > 0) {
-        const firstTier = tiers[0];
-        const remaining = ((firstTier.thresholdAmount - cartTotal) / 100).toFixed(2);
-        messageHTML = `Spend $${remaining} more for <span>${firstTier.name} Gift</span>`;
+        
+        // Add free shipping earned
+        if (earnedShipping) {
+          if (messageHTML) messageHTML += ' ';
+          messageHTML += '🚚 <span class="gwp-free-shipping-text">Free Shipping Earned!</span>';
+        }
+        
+        // Show next milestone
+        if (nextMilestone) {
+          const remaining = ((nextMilestone.threshold - cartTotal) / 100).toFixed(2);
+          if (nextMilestone.type === 'shipping') {
+            messageHTML += ` Spend $${remaining} more for <span>Free Shipping</span>`;
+          } else {
+            messageHTML += ` Spend $${remaining} more for <span>${nextMilestone.name} Gift</span>`;
+          }
+        }
       }
       
       // Build tier icons HTML
@@ -229,15 +288,6 @@
         const isComplete = cartTotal >= tier.thresholdAmount;
         const hasGiftFromThis = hasGiftFromTier(tier.id, tier.name);
         const giftInCart = getGiftFromCart(tier.id, tier.name);
-        
-        // Debug: log tier data to see what we have
-        console.log('🎁 GWP Tier data:', {
-          tierName: tier.name,
-          giftProductsCount: tier.giftProducts?.length || 0,
-          collectionHandle: tier.collectionHandle,
-          collectionImageUrl: tier.collectionImageUrl,
-          firstProduct: tier.giftProducts?.[0]
-        });
         
         // Get image URL - check multiple possible sources
         let imageUrl = '';
@@ -251,14 +301,9 @@
                      firstProduct.image?.url ||
                      firstProduct.image ||
                      '';
-          console.log('🎁 GWP Image URL from giftProducts:', imageUrl);
         } else if (tier.collectionImageUrl) {
           // Collection-based tier with saved image URL
           imageUrl = tier.collectionImageUrl;
-          console.log('🎁 GWP Image URL from collection:', imageUrl);
-        } else if (tier.collectionHandle) {
-          // Collection-based tier but no image saved yet
-          console.log('🎁 GWP: Collection-based tier, no image saved. Re-save settings to fetch collection image.');
         }
         
         const borderStyle = isComplete 
@@ -277,6 +322,24 @@
             }
             <span class="gwp-tier-price">${formatMoney(tier.thresholdAmount)}</span>
             ${hasGiftFromThis ? '<span class="gwp-change-gift-hint">Click to change</span>' : ''}
+          </div>
+        `;
+      }
+      
+      // Add free shipping tier if enabled
+      if (hasFreeShipping) {
+        const freeShippingPosition = (freeShipping.threshold / maxThreshold) * 100;
+        const freeShippingImageUrl = 'https://cdn.shopify.com/s/files/1/0110/7827/1033/files/fast-shipping-delivery-truck-or-van-icon-vector-21649419.jpg?v=1743573173';
+        
+        tierIconsHTML += `
+          <div class="gwp-progress-icon gwp-free-shipping-icon${hasFreeShippingEarned ? ' complete' : ''}" 
+               style="left: ${freeShippingPosition}%;" 
+               data-threshold="${freeShipping.threshold}" 
+               data-tier-id="free-shipping"
+               data-tier-name="Free Shipping">
+            <img src="${freeShippingImageUrl}" alt="Free Shipping" class="gwp-tier-image gwp-shipping-image ${hasFreeShippingEarned ? 'complete' : ''}">
+            <span class="gwp-tier-price">${formatMoney(freeShipping.threshold)}</span>
+            ${hasFreeShippingEarned ? '<span class="gwp-free-shipping-earned">Free Shipping Earned!</span>' : ''}
           </div>
         `;
       }
@@ -453,32 +516,80 @@
           display: block;
           margin-top: 2px;
         }
+        
+        .gwp-free-shipping-icon {
+          cursor: default;
+        }
+        
+        .gwp-shipping-image {
+          background: white;
+          object-fit: contain !important;
+        }
+        
+        .gwp-free-shipping-earned {
+          font-size: 9px;
+          color: #28a745;
+          display: block;
+          margin-top: 2px;
+          font-weight: bold;
+        }
+        
+        .gwp-free-shipping-text {
+          color: #28a745 !important;
+          font-weight: bold;
+        }
       `;
       document.head.appendChild(styles);
     }
     
+    // Track previous cart total to avoid unnecessary re-renders
+    let lastCartTotal = null;
+    
     // Update progress bar with current cart data
-    async function updateProgressBar() {
+    async function updateProgressBar(forceUpdate = false) {
+      const previousTotal = cartData?.total_price;
       await getCartData();
+      const newTotal = cartData?.total_price;
       
       // Check if progress bar still exists, if not re-inject it
       const existingBar = document.getElementById('gwp-injected-progress-bar');
       if (!existingBar) {
-        console.log('🎁 GWP: Progress bar was removed, re-injecting...');
+        debugLog('Progress bar was removed, re-injecting...');
         progressBarRetryCount = 0; // Reset retry count
         injectProgressBar();
-      } else {
+      } else if (forceUpdate || newTotal !== lastCartTotal) {
+        // Only re-render if cart total changed or force update requested
+        lastCartTotal = newTotal;
         renderProgressBar();
       }
     }
     
     // Monitor cart updates
     function monitorCartUpdates() {
+      // Debounce helper to prevent excessive updates
+      let updateTimeout = null;
+      let isReinjecting = false;
+      
+      function debouncedUpdate() {
+        if (updateTimeout) clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(updateProgressBar, 300);
+      }
+      
+      function debouncedReinject() {
+        if (isReinjecting) return;
+        isReinjecting = true;
+        progressBarRetryCount = 0;
+        setTimeout(() => {
+          injectProgressBar();
+          isReinjecting = false;
+        }, 100);
+      }
+      
       // Listen for common cart update events
-      document.addEventListener('cart:updated', updateProgressBar);
-      document.addEventListener('cart:refresh', updateProgressBar);
-      document.addEventListener('cart:change', updateProgressBar);
-      document.addEventListener('ajaxCart:updated', updateProgressBar);
+      document.addEventListener('cart:updated', debouncedUpdate);
+      document.addEventListener('cart:refresh', debouncedUpdate);
+      document.addEventListener('cart:change', debouncedUpdate);
+      document.addEventListener('ajaxCart:updated', debouncedUpdate);
       
       // Intercept fetch calls to /cart endpoints
       const originalFetch = window.fetch;
@@ -491,10 +602,7 @@
             url.includes('/cart/change') || 
             url.includes('/cart/update') ||
             url.includes('/cart/clear')) {
-          console.log('🎁 GWP: Cart fetch detected, updating progress bar...');
-          // Wait a moment for the DOM to update, then refresh
-          setTimeout(updateProgressBar, 500);
-          setTimeout(updateProgressBar, 1500);
+          debouncedUpdate();
         }
         
         return response;
@@ -516,9 +624,7 @@
             this._gwpUrl.includes('/cart/update') ||
             this._gwpUrl.includes('/cart/clear')
           )) {
-            console.log('🎁 GWP: Cart XHR detected, updating progress bar...');
-            setTimeout(updateProgressBar, 500);
-            setTimeout(updateProgressBar, 1500);
+            debouncedUpdate();
           }
         });
         return originalXHRSend.apply(this, arguments);
@@ -528,9 +634,7 @@
       const observer = new MutationObserver((mutations) => {
         const existingBar = document.getElementById('gwp-injected-progress-bar');
         if (!existingBar && progressBarConfig?.enabled && progressBarConfig?.selector) {
-          console.log('🎁 GWP: Progress bar removed from DOM, re-injecting...');
-          progressBarRetryCount = 0;
-          setTimeout(injectProgressBar, 100);
+          debouncedReinject();
         }
       });
       
@@ -540,10 +644,8 @@
         subtree: true
       });
       
-      // Poll for updates (fallback) - also checks if bar needs re-injection
-      setInterval(updateProgressBar, 3000);
-      
-      console.log('🎁 GWP: Cart monitoring initialized');
+      // Poll for updates (fallback) - less frequent
+      setInterval(updateProgressBar, 5000);
     }
     
     // Open the gift modal
@@ -605,11 +707,11 @@
         
         // Inject progress bar if configured
         if (progressBarConfig && progressBarConfig.enabled && progressBarConfig.selector) {
-          console.log('🎁 GWP: Progress bar configured, will inject at:', progressBarConfig.selector, 'position:', progressBarConfig.position);
+          debugLog('Progress bar configured, will inject at:', progressBarConfig.selector, 'position:', progressBarConfig.position);
           injectProgressBar();
           monitorCartUpdates();
         } else {
-          console.log('🎁 GWP: Progress bar not enabled or no selector configured. Config:', progressBarConfig);
+          debugLog('Progress bar not enabled or no selector configured. Config:', progressBarConfig);
         }
       } catch (error) {
         console.error('🎁 GWP: Error during initialization:', error);

@@ -31,7 +31,11 @@
     "enabled": true,
     "selector": ".cart-drawer__header",
     "position": "below",
-    "modalBehavior": "click"
+    "modalBehavior": "click",
+    "freeShipping": {
+      "enabled": true,
+      "threshold": 5500
+    }
   },
   "isActive": true
 }
