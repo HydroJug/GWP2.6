@@ -110,7 +110,8 @@ export const loader = async ({ request }) => {
   return json({ 
     settings: {
       tiers: tiersWithProducts,
-      isActive: settings.isActive
+      isActive: settings.isActive,
+      progressBar: settings.progressBar || null
     }
   });
 };

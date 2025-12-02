@@ -1142,7 +1142,6 @@ export const loader = async ({ request }) => {
       function shouldAutoShowModal() {
         // If modalBehavior is 'click', don't auto-show
         if (progressBarSettings?.modalBehavior === 'click') {
-          console.log('🎁 GWP Modal: Auto-show disabled (click mode)');
           return false;
         }
         // Default to auto-show (backwards compatible)

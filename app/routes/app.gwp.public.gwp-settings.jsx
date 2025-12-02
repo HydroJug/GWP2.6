@@ -63,39 +63,17 @@ async function fetchConfigFromAPI(shop) {
   }
 }
 
-// Get default configuration
+// Get default configuration - returns empty/disabled config
+// Real config should come from the config API
 function getDefaultConfig() {
   return {
-    tiers: [
-      // {
-      //   id: 'tier1',
-      //   name: 'Silver',
-      //   thresholdAmount: 8000, // $80
-      //   description: 'Choose 1 free gift',
-      //   maxSelections: 1,
-      //   collectionId: null,
-      //   collectionHandle: null,
-      //   collectionTitle: null,
-      //   giftProducts: []
-      // },
-      {
-        id: 'tier2', 
-        name: 'Gold',
-        thresholdAmount: 7000, // $120
-        description: 'Choose 1 free gift',
-        maxSelections: 1,
-        collectionId: null,
-        collectionHandle: null,
-        collectionTitle: null,
-        giftProducts: []
-      }
-    ],
+    tiers: [],
     progressBar: {
-      enabled: true,
-      selector: '.cart__items',
+      enabled: false,
+      selector: '',
       position: 'below'
     },
-    isActive: true
+    isActive: false
   };
 }
 

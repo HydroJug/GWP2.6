@@ -452,7 +452,7 @@ async function createOrUpdateDiscountCodes(admin, tiers) {
     console.log('Creating/updating discount codes for tiers:', tiers);
 
     for (const tier of tiers) {
-      const discountCode = `FREE ${tier.name.toUpperCase()} TIER GIFT!`;
+      const discountCode = `FREE ${tier.name.toUpperCase()}!`;
       const discountCodeClean = discountCode.replace(/\s+/g, '').toUpperCase();
 
       // Check if discount code already exists

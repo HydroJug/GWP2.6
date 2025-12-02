@@ -203,7 +203,7 @@ export function cartLinesDiscountsGenerateRun(input) {
         const productTitle = tierProducts[0].merchandise?.product?.title || 'Unknown';
         
         // CRITICAL: Build the discount message using the tier name from the configuration
-        const discountMessage = `Free ${tier.name} Tier Gift!`;
+        const discountMessage = `Free ${tier.name}!`;
         
         console.log(`✅ ${tierName} Tier: Adding discount candidate`);
         console.log(`   CartLine ID: ${selectedCartLineId}`);

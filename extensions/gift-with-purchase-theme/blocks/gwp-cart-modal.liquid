@@ -3,6 +3,12 @@
   This block loads the cart modal functionality and progress bar injection when enabled in the theme.
 {% endcomment %}
 
+{% comment %} Get GWP configuration directly from app metafields - no HTTP fetch needed! {% endcomment %}
+{% assign gwp_metafield_config = null %}
+{% if app.metafields.gwp_settings.config %}
+  {% assign gwp_metafield_config = app.metafields.gwp_settings.config.value %}
+{% endif %}
+
 <script>
   // Load the GWP cart modal script and progress bar
   (function() {
@@ -41,6 +47,9 @@
     // PROGRESS BAR INJECTION (using CSS selector from admin config)
     // ============================================
     
+    // GWP Configuration loaded directly from Shopify app metafields (no HTTP fetch needed!)
+    const gwpMetafieldConfig = {{ gwp_metafield_config | json | default: 'null' }};
+    
     let gwpConfig = null;
     let progressBarConfig = null;
     let cartData = null;
@@ -48,8 +57,24 @@
     const MAX_RETRIES = 15;
     const RETRY_DELAY = 1000;
     
-    // Fetch GWP configuration from the app
+    // Load GWP configuration - prefer metafields, fall back to HTTP fetch
     async function fetchGWPConfig() {
+      // First try to use config from app metafields (instant, no HTTP)
+      if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
+        debugLog('Using config from app metafields (no HTTP fetch needed)');
+        gwpConfig = gwpMetafieldConfig;
+        progressBarConfig = gwpMetafieldConfig.progressBar;
+        
+        debugLog('Config loaded from metafields:', {
+          tiersCount: gwpConfig.tiers?.length || 0,
+          progressBar: progressBarConfig
+        });
+        
+        return gwpConfig;
+      }
+      
+      // Fall back to HTTP fetch if metafields not available
+      debugLog('Metafields not available, falling back to HTTP fetch');
       try {
         const shop = window.Shopify?.shop || shopDomain;
         const appUrl = config.appUrl || 'https://gwp-2-6.vercel.app';
@@ -66,7 +91,7 @@
         gwpConfig = data;
         progressBarConfig = data.progressBar;
         
-        debugLog('Config loaded:', {
+        debugLog('Config loaded from HTTP:', {
           tiersCount: gwpConfig.tiers?.length || 0,
           progressBar: progressBarConfig
         });
@@ -258,16 +283,16 @@
           const hasGift = hasGiftFromTier(highestGift.id, highestGift.name);
           
           if (hasGift) {
-            messageHTML = `<span>${highestGift.name} Gift</span> Earned!`;
+            messageHTML = `<span>${highestGift.name}</span> Earned!`;
           } else {
-            messageHTML = `<span>${highestGift.name} Gift</span> Earned! <span class="gwp-claim-now">Claim Now!</span>`;
+            messageHTML = `<span>${highestGift.name}</span> Earned! <span class="gwp-claim-now">Claim Now!</span>`;
           }
         }
         
         // Add free shipping earned
         if (earnedShipping) {
           if (messageHTML) messageHTML += ' ';
-          messageHTML += '🚚 <span class="gwp-free-shipping-text">Free Shipping Earned!</span>';
+          messageHTML += '<span class="gwp-free-shipping-text">Free Shipping Earned!</span>';
         }
         
         // Show next milestone
@@ -277,6 +302,18 @@
             messageHTML += ` Spend $${remaining} more for <span>Free Shipping</span>`;
           } else {
             messageHTML += ` Spend $${remaining} more for <span>${nextMilestone.name} Gift</span>`;
+          }
+        }
+      }
+      
+      // Check if any gifts have been claimed
+      let hasAnyGiftClaimed = false;
+      let hasAnyGiftEarned = false;
+      for (const tier of tiers) {
+        if (cartTotal >= tier.thresholdAmount) {
+          hasAnyGiftEarned = true;
+          if (hasGiftFromTier(tier.id, tier.name)) {
+            hasAnyGiftClaimed = true;
           }
         }
       }
@@ -321,7 +358,6 @@
               : `<div class="gwp-tier-placeholder ${isComplete ? 'complete' : ''}">🎁</div>`
             }
             <span class="gwp-tier-price">${formatMoney(tier.thresholdAmount)}</span>
-            ${hasGiftFromThis ? '<span class="gwp-change-gift-hint">Click to change</span>' : ''}
           </div>
         `;
       }
@@ -339,13 +375,20 @@
                data-tier-name="Free Shipping">
             <img src="${freeShippingImageUrl}" alt="Free Shipping" class="gwp-tier-image gwp-shipping-image ${hasFreeShippingEarned ? 'complete' : ''}">
             <span class="gwp-tier-price">${formatMoney(freeShipping.threshold)}</span>
-            ${hasFreeShippingEarned ? '<span class="gwp-free-shipping-earned">Free Shipping Earned!</span>' : ''}
           </div>
         `;
       }
       
+      // Build change gifts message if gifts have been claimed
+      let changeGiftsHTML = '';
+      if (hasAnyGiftClaimed) {
+        changeGiftsHTML = `<span class="gwp-change-gifts-link">Click here to change your gift(s)</span>`;
+      } else if (hasAnyGiftEarned) {
+        changeGiftsHTML = `<span class="gwp-change-gifts-link">Click here to select your gift(s)</span>`;
+      }
+      
       container.innerHTML = `
-        <div class="gwp-progress-message">${messageHTML}</div>
+      <div class="gwp-progress-message">${messageHTML} ${changeGiftsHTML}</div>
         <div class="gwp-progress-bar-wrapper">
           <div class="gwp-progress-bar-meter">
             <div class="gwp-progress-bar-meter-fill" style="width: ${progressPercentage}%;"></div>
@@ -353,6 +396,13 @@
           ${tierIconsHTML}
         </div>
       `;
+      
+      // Make entire container clickable if gifts are earned
+      if (hasAnyGiftEarned) {
+        container.classList.add('gwp-clickable');
+      } else {
+        container.classList.remove('gwp-clickable');
+      }
       
       // Add click handlers
       initProgressBarClickHandlers();
@@ -373,13 +423,24 @@
         });
       });
       
-      // Tier icons
-      document.querySelectorAll('.gwp-progress-icon').forEach(el => {
+      // Change gifts link
+      document.querySelectorAll('.gwp-change-gifts-link').forEach(el => {
         el.addEventListener('click', (e) => {
           e.preventDefault();
           openGiftModal();
         });
       });
+      
+      // Entire container when clickable
+      const container = document.getElementById('gwp-injected-progress-bar');
+      if (container && container.classList.contains('gwp-clickable')) {
+        container.addEventListener('click', (e) => {
+          // Don't trigger if clicking on the claim now link (it has its own handler)
+          if (!e.target.closest('.gwp-claim-now')) {
+            openGiftModal();
+          }
+        });
+      }
     }
     
     // Add progress bar styles
@@ -390,11 +451,20 @@
       styles.id = 'gwp-progress-bar-styles';
       styles.textContent = `
         .gwp-progress-bar-container {
-          margin: 20px 0;
           padding: 15px;
           background: #f8f9fa;
           border-radius: 8px;
           border: 1px solid #e9ecef;
+        }
+        
+        .gwp-progress-bar-container.gwp-clickable {
+          cursor: pointer;
+          transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+        
+        .gwp-progress-bar-container.gwp-clickable:hover {
+          background: #f0f4f8;
+          border-color: #0161FE;
         }
         
         .gwp-progress-message {
@@ -418,6 +488,15 @@
         
         .gwp-claim-now:hover {
           color: #0056d6 !important;
+        }
+        
+        .gwp-change-gifts-link {
+          text-align: center;
+          margin-bottom: 8px;
+          font-size: 13px;
+          color: #0161FE;
+          font-weight: 500;
+          text-decoration: underline;
         }
         
         .gwp-progress-bar-wrapper {
@@ -446,15 +525,9 @@
           top: -18px;
           transform: translateX(-50%);
           text-align: center;
-          transition: all 0.3s ease;
-          cursor: pointer;
           padding: 5px;
           border-radius: 50%;
-        }
-        
-        .gwp-progress-icon:hover {
-          background: rgba(1, 97, 254, 0.1);
-          transform: translateX(-50%) scale(1.1);
+          pointer-events: none;
         }
         
         .gwp-progress-icon:active {

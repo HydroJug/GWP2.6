@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 
 // Simple in-memory storage for configuration
-// In production, you'd want to use a database or external storage
+// Falls back to file cache when in-memory is empty
 let shopConfigs = new Map();
 // Map custom domains (and other aliases) to canonical myshopify shop
 let aliasToShop = new Map();
@@ -18,6 +18,67 @@ function normalizeHost(host) {
 function toggleWww(host) {
   if (!host) return host;
   return host.startsWith('www.') ? host.slice(4) : `www.${host}`;
+}
+
+// Try to load config from file cache
+async function loadFromFileCache(shop) {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    const cacheDir = './cache';
+    const shopFileName = shop.replace(/[^a-zA-Z0-9]/g, '-');
+    const configPath = path.join(cacheDir, `gwp-config-${shopFileName}.json`);
+    
+    const configData = await fs.readFile(configPath, 'utf-8');
+    const config = JSON.parse(configData);
+    
+    console.log(`Loaded config from file cache for ${shop}`);
+    
+    // Store in memory for faster subsequent access
+    const canonicalKey = normalizeHost(shop);
+    shopConfigs.set(canonicalKey, config);
+    
+    return config;
+  } catch (error) {
+    // File doesn't exist or couldn't be read
+    return null;
+  }
+}
+
+// Try to find config file by listing cache directory
+async function findConfigInCache(shop) {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    const cacheDir = './cache';
+    const files = await fs.readdir(cacheDir);
+    
+    // Look for any gwp-config file
+    const configFiles = files.filter(f => f.startsWith('gwp-config-') && f.endsWith('.json'));
+    
+    if (configFiles.length === 0) return null;
+    
+    // If only one config file exists, use it (single-tenant fallback)
+    if (configFiles.length === 1) {
+      const configPath = path.join(cacheDir, configFiles[0]);
+      const configData = await fs.readFile(configPath, 'utf-8');
+      const config = JSON.parse(configData);
+      
+      console.log(`Using single config file ${configFiles[0]} for ${shop}`);
+      
+      // Store in memory with the requesting shop as key
+      const canonicalKey = normalizeHost(shop);
+      shopConfigs.set(canonicalKey, config);
+      
+      return config;
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function resolveShopKey(inputHost) {
@@ -73,13 +134,18 @@ export const loader = async ({ request }) => {
 
     // Resolve configuration by shop or alias
     const resolvedKey = resolveShopKey(shop);
-    const config = resolvedKey ? shopConfigs.get(resolvedKey) : null;
+    let config = resolvedKey ? shopConfigs.get(resolvedKey) : null;
     
-    // console.debug('Config API called for shop:', shop);
-    // console.debug('Resolved key:', resolvedKey);
-    // console.debug('Available configs:', Array.from(shopConfigs.keys()));
-    // console.debug('Known aliases:', Array.from(aliasToShop.entries()));
-    // console.debug('Found config:', config);
+    // If not in memory, try to load from file cache
+    if (!config) {
+      console.log('Config not in memory, trying file cache for:', shop);
+      config = await loadFromFileCache(shop);
+    }
+    
+    // If still not found, try to find any config file (single-tenant fallback)
+    if (!config) {
+      config = await findConfigInCache(shop);
+    }
     
     if (config) {
       console.log('Returning configuration for shop:', shop);
@@ -93,14 +159,13 @@ export const loader = async ({ request }) => {
       });
     }
 
-    // Auto-learn alias if exactly one config exists
+    // Auto-learn alias if exactly one config exists in memory
     if (shopConfigs.size === 1) {
       const onlyKey = Array.from(shopConfigs.keys())[0];
       const fallbackConfig = shopConfigs.get(onlyKey);
       const aliasKey = normalizeHost(shop);
       if (aliasKey && aliasKey !== onlyKey) {
         aliasToShop.set(aliasKey, onlyKey);
-        // console.debug('Alias learned:', aliasKey, '->', onlyKey);
       }
       return json({
         tiers: fallbackConfig.tiers,
@@ -112,8 +177,8 @@ export const loader = async ({ request }) => {
       });
     }
 
-    // Return default configuration if none exists
-    console.log('No configuration found for shop:', shop, 'returning default');
+    // Return empty configuration if none exists
+    console.log('No configuration found for shop:', shop);
     return json({
       tiers: [],
       progressBar: null,

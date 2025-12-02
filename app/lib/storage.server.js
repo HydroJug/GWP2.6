@@ -55,6 +55,16 @@ export async function getGWPSettings(admin, shop) {
           description: 'Choose 1 free gift'
         }
       ],
+      progressBar: {
+        enabled: false,
+        selector: '',
+        position: 'below',
+        modalBehavior: 'auto',
+        freeShipping: {
+          enabled: false,
+          threshold: 10000
+        }
+      },
       isActive: true
     };
   } catch (error) {
@@ -70,6 +80,16 @@ export async function getGWPSettings(admin, shop) {
           description: 'Choose 1 free gift'
         }
       ],
+      progressBar: {
+        enabled: false,
+        selector: '',
+        position: 'below',
+        modalBehavior: 'auto',
+        freeShipping: {
+          enabled: false,
+          threshold: 10000
+        }
+      },
       isActive: true
     };
   }
