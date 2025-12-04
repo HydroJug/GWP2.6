@@ -238,17 +238,23 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       }
     `;
 
-    // Convert tiers to metafield format
+    // Convert tiers to metafield format - now using product IDs instead of tags
     const tiersConfig = tiers.map((tier, index) => ({
       id: tier.id,
       name: tier.name,
       thresholdAmount: tier.thresholdAmount,
-      tag: tier.tag || `tier${index + 1}-gift`,
-      maxSelections: tier.maxSelections || 1
+      maxSelections: tier.maxSelections || 1,
+      // Use collection product IDs if available, otherwise fall back to individual giftProductIds
+      productIds: tier.collectionProductIds || tier.giftProductIds || [],
+      collectionId: tier.collectionId || null,
+      collectionHandle: tier.collectionHandle || null
     }));
 
     console.log('🎯 Creating discount with function ID:', functionId);
-    console.log('🎯 Tiers configuration:', tiersConfig);
+    console.log('🎯 Tiers configuration (with product IDs):');
+    tiersConfig.forEach((tier, index) => {
+      console.log(`  Tier ${index + 1}: ${tier.name}, threshold: $${(tier.thresholdAmount / 100).toFixed(2)}, products: ${tier.productIds.length}`);
+    });
 
     const createResponse = await admin.graphql(createMutation, {
       variables: {

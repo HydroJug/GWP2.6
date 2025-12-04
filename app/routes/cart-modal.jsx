@@ -1,12 +1,36 @@
 import { json } from "@remix-run/node";
+import { unauthenticated } from "../shopify.server";
+import { getGWPSettings } from "../lib/storage.server";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get('shop') || 'hydrojug.myshopify.com';
   
-  /* cart modal loader - logs removed for cleanliness */
+  // Fetch GWP settings directly from Shopify metafields
+  // This runs on the server, so we can authenticate
+  let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
   
-  // Generate the cart modal HTML/JS
+  try {
+    // Use unauthenticated admin client to read metafields
+    const { admin } = await unauthenticated.admin(shop);
+    const settings = await getGWPSettings(admin, shop);
+    
+    embeddedConfig = {
+      tiers: settings.tiers || [],
+      progressBar: settings.progressBar || null,
+      isActive: settings.isActive !== false
+    };
+    
+    console.log(`Cart-modal: Loaded ${embeddedConfig.tiers.length} tiers for ${shop} from metafields`);
+  } catch (error) {
+    console.error('Cart-modal: Error loading settings from metafields:', error.message);
+    // Continue with empty config - the script will still work, just no GWP
+  }
+  
+  // Serialize config to embed in script
+  const configJson = JSON.stringify(embeddedConfig);
+  
+  // Generate the cart modal HTML/JS with embedded config
   const cartModalScript = `
     (function() {
       /* GWP Script: load start (debug disabled) */
@@ -1099,24 +1123,21 @@ export const loader = async ({ request }) => {
       // Store progress bar config for modal behavior
       let progressBarSettings = null;
       
-      // Fetch GWP configuration
+      // GWP Configuration - embedded directly from Shopify metafields at script load time
+      // No API calls needed - this is populated server-side when the script is requested
+      const EMBEDDED_GWP_CONFIG = ${configJson};
+      
+      // Get GWP configuration (uses embedded config - no fetch needed!)
       async function fetchGWPConfig() {
         try {
-          // Get the current script URL to determine the app domain
-          const scriptElement = document.currentScript || document.querySelector('script[src*="cart-modal"]');
-          const scriptUrl = scriptElement ? scriptElement.src : window.location.href;
-          const appUrl = new URL(scriptUrl).origin;
+          console.log('🎁 GWP Modal: Using embedded config from metafields');
           
-          const timestamp = Date.now();
-          const configUrl = appUrl + '/app/gwp/public/gwp-settings?shop=' + shop + '&v=' + timestamp;
-          const response = await fetch(configUrl);
-          const data = await response.json();
-          
-          const tiers = data.tiers || [];
+          const tiers = EMBEDDED_GWP_CONFIG.tiers || [];
           
           // Store progress bar settings for modal behavior
-          progressBarSettings = data.progressBar || null;
-          console.log('🎁 GWP Modal: Progress bar settings loaded:', progressBarSettings);
+          progressBarSettings = EMBEDDED_GWP_CONFIG.progressBar || null;
+          console.log('🎁 GWP Modal: Progress bar settings:', progressBarSettings);
+          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers (embedded)');
           
           // Log each tier's details
           tiers.forEach((tier, index) => {
@@ -1133,7 +1154,7 @@ export const loader = async ({ request }) => {
           
           return tiers;
         } catch (error) {
-          errorLog('Error fetching GWP config:', error);
+          errorLog('Error reading embedded GWP config:', error);
           return [];
         }
       }

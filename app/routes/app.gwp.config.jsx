@@ -20,28 +20,37 @@ function toggleWww(host) {
   return host.startsWith('www.') ? host.slice(4) : `www.${host}`;
 }
 
-// Try to load config from file cache
+// Try to load config from file cache with multiple path attempts
 async function loadFromFileCache(shop) {
   try {
     const fs = await import('fs/promises');
     const path = await import('path');
     
-    const cacheDir = './cache';
+    // Try multiple cache directories (Vercel uses different paths)
+    const cacheDirs = ['./cache', '/tmp/cache', process.cwd() + '/cache'];
     const shopFileName = shop.replace(/[^a-zA-Z0-9]/g, '-');
-    const configPath = path.join(cacheDir, `gwp-config-${shopFileName}.json`);
     
-    const configData = await fs.readFile(configPath, 'utf-8');
-    const config = JSON.parse(configData);
+    for (const cacheDir of cacheDirs) {
+      try {
+        const configPath = path.join(cacheDir, `gwp-config-${shopFileName}.json`);
+        const configData = await fs.readFile(configPath, 'utf-8');
+        const config = JSON.parse(configData);
+        
+        console.log(`Loaded config from file cache: ${configPath}`);
+        
+        // Store in memory for faster subsequent access
+        const canonicalKey = normalizeHost(shop);
+        shopConfigs.set(canonicalKey, config);
+        
+        return config;
+      } catch (e) {
+        // Try next directory
+      }
+    }
     
-    console.log(`Loaded config from file cache for ${shop}`);
-    
-    // Store in memory for faster subsequent access
-    const canonicalKey = normalizeHost(shop);
-    shopConfigs.set(canonicalKey, config);
-    
-    return config;
+    return null;
   } catch (error) {
-    // File doesn't exist or couldn't be read
+    console.log('Error in loadFromFileCache:', error.message);
     return null;
   }
 }
@@ -52,31 +61,54 @@ async function findConfigInCache(shop) {
     const fs = await import('fs/promises');
     const path = await import('path');
     
-    const cacheDir = './cache';
-    const files = await fs.readdir(cacheDir);
+    // Try multiple cache directories
+    const cacheDirs = ['./cache', '/tmp/cache', process.cwd() + '/cache'];
     
-    // Look for any gwp-config file
-    const configFiles = files.filter(f => f.startsWith('gwp-config-') && f.endsWith('.json'));
-    
-    if (configFiles.length === 0) return null;
-    
-    // If only one config file exists, use it (single-tenant fallback)
-    if (configFiles.length === 1) {
-      const configPath = path.join(cacheDir, configFiles[0]);
-      const configData = await fs.readFile(configPath, 'utf-8');
-      const config = JSON.parse(configData);
-      
-      console.log(`Using single config file ${configFiles[0]} for ${shop}`);
-      
-      // Store in memory with the requesting shop as key
-      const canonicalKey = normalizeHost(shop);
-      shopConfigs.set(canonicalKey, config);
-      
-      return config;
+    for (const cacheDir of cacheDirs) {
+      try {
+        const files = await fs.readdir(cacheDir);
+        
+        // Look for any gwp-config file
+        const configFiles = files.filter(f => f.startsWith('gwp-config-') && f.endsWith('.json'));
+        
+        if (configFiles.length === 0) continue;
+        
+        // Use the first (or only) config file found
+        const configPath = path.join(cacheDir, configFiles[0]);
+        const configData = await fs.readFile(configPath, 'utf-8');
+        const config = JSON.parse(configData);
+        
+        console.log(`Found config file ${configFiles[0]} in ${cacheDir} for ${shop}`);
+        
+        // Store in memory with the requesting shop as key AND any aliases
+        const canonicalKey = normalizeHost(shop);
+        shopConfigs.set(canonicalKey, config);
+        
+        // Also store under common domain variations
+        const shopVariations = [
+          shop,
+          shop.replace('.myshopify.com', ''),
+          shop.replace('www.', ''),
+          'www.' + shop.replace('www.', '')
+        ];
+        
+        for (const variation of shopVariations) {
+          const normalizedVariation = normalizeHost(variation);
+          if (normalizedVariation && !shopConfigs.has(normalizedVariation)) {
+            shopConfigs.set(normalizedVariation, config);
+          }
+        }
+        
+        return config;
+      } catch (e) {
+        // Try next directory
+      }
     }
     
+    console.log('No config files found in any cache directory');
     return null;
   } catch (error) {
+    console.log('Error in findConfigInCache:', error.message);
     return null;
   }
 }

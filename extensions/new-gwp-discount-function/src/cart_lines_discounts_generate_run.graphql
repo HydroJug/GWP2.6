@@ -15,14 +15,10 @@ query CartInput {
       quantity
       merchandise {
         ... on ProductVariant {
+          id
           product {
             id
             title
-            productType
-            hasTags(tags: ["tier1-gift", "tier2-gift", "tier3-gift"]) {
-              hasTag
-              tag
-            }
           }
         }
       }

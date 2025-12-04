@@ -269,43 +269,65 @@ export const action = async ({ request }) => {
       let tiers = JSON.parse(tiersData);
       const progressBar = progressBarData ? JSON.parse(progressBarData) : null;
       
-      // For collection-based tiers, fetch the first product's image from each collection
-      const tiersWithImages = await Promise.all(tiers.map(async (tier) => {
-        // If tier uses a collection and doesn't have gift products, fetch collection image
-        if (tier.collectionHandle && (!tier.giftProducts || tier.giftProducts.length === 0)) {
+      // For collection-based tiers, fetch ALL product IDs from the collection
+      // This is the key fix: we store product IDs so the discount function can match by ID, not tags
+      const tiersWithProducts = await Promise.all(tiers.map(async (tier) => {
+        // If tier uses a collection, fetch all products from that collection
+        if (tier.collectionId) {
           try {
+            console.log(`Fetching products for collection: ${tier.collectionHandle} (ID: ${tier.collectionId})`);
+            
+            // Fetch all products from the collection (up to 250)
             const collectionResponse = await admin.graphql(
               `#graphql
-                query getCollectionProducts($handle: String!) {
-                  collectionByHandle(handle: $handle) {
-                    products(first: 1) {
+                query getCollectionProducts($id: ID!) {
+                  collection(id: $id) {
+                    products(first: 250) {
                       edges {
                         node {
+                          id
+                          title
                           featuredImage {
                             url
+                          }
+                          variants(first: 1) {
+                            edges {
+                              node {
+                                id
+                              }
+                            }
                           }
                         }
                       }
                     }
                   }
                 }`,
-              { variables: { handle: tier.collectionHandle } }
+              { variables: { id: `gid://shopify/Collection/${tier.collectionId}` } }
             );
             const collectionData = await collectionResponse.json();
-            const firstProduct = collectionData.data?.collectionByHandle?.products?.edges?.[0]?.node;
-            if (firstProduct?.featuredImage?.url) {
-              console.log(`Found collection image for tier ${tier.name}:`, firstProduct.featuredImage.url);
-              return {
-                ...tier,
-                collectionImageUrl: firstProduct.featuredImage.url
-              };
-            }
+            const products = collectionData.data?.collection?.products?.edges || [];
+            
+            // Extract product IDs (full GIDs like gid://shopify/Product/123)
+            const productIds = products.map(edge => edge.node.id);
+            const firstProduct = products[0]?.node;
+            
+            console.log(`Found ${productIds.length} products in collection ${tier.collectionHandle}`);
+            console.log(`Product IDs: ${productIds.slice(0, 5).join(', ')}${productIds.length > 5 ? '...' : ''}`);
+            
+            return {
+              ...tier,
+              // Store the full product GIDs for the discount function
+              collectionProductIds: productIds,
+              collectionImageUrl: firstProduct?.featuredImage?.url || tier.collectionImageUrl
+            };
           } catch (error) {
-            console.error(`Error fetching collection image for tier ${tier.name}:`, error);
+            console.error(`Error fetching collection products for tier ${tier.name}:`, error);
           }
         }
         return tier;
       }));
+      
+      const tiersWithImages = tiersWithProducts;
       
       tiers = tiersWithImages;
       
@@ -380,14 +402,6 @@ export const action = async ({ request }) => {
         const fs = await import('fs/promises');
         const path = await import('path');
         
-        // Create cache directory if it doesn't exist
-        const cacheDir = './cache';
-        try {
-          await fs.mkdir(cacheDir, { recursive: true });
-        } catch (mkdirError) {
-          // Directory might already exist
-        }
-        
         // Create cached config with collection-based tiers
         const cachedConfig = {
           tiers: tiers.map(tier => ({
@@ -401,6 +415,8 @@ export const action = async ({ request }) => {
             collectionHandle: tier.collectionHandle,
             collectionTitle: tier.collectionTitle,
             collectionImageUrl: tier.collectionImageUrl,
+            // Include product IDs for discount function
+            collectionProductIds: tier.collectionProductIds || [],
             // Keep product-based approach as fallback
             giftVariantIds: tier.giftVariantIds || [],
             giftProducts: tier.giftProducts || []
@@ -409,12 +425,24 @@ export const action = async ({ request }) => {
           isActive: true
         };
 
-        // Save shop-specific cached config
         const shopFileName = session.shop.replace(/[^a-zA-Z0-9]/g, '-');
-        const configPath = path.join(cacheDir, `gwp-config-${shopFileName}.json`);
+        const configFileName = `gwp-config-${shopFileName}.json`;
+        const configContent = JSON.stringify(cachedConfig, null, 2);
         
-        await fs.writeFile(configPath, JSON.stringify(cachedConfig, null, 2));
-        console.log(`Cached config saved to: ${configPath}`);
+        // Try to save to multiple cache directories for different environments
+        // Vercel's writable filesystem is in /tmp, local dev uses ./cache
+        const cacheDirs = ['./cache', '/tmp/cache'];
+        
+        for (const cacheDir of cacheDirs) {
+          try {
+            await fs.mkdir(cacheDir, { recursive: true });
+            const configPath = path.join(cacheDir, configFileName);
+            await fs.writeFile(configPath, configContent);
+            console.log(`Cached config saved to: ${configPath}`);
+          } catch (dirError) {
+            console.log(`Could not save to ${cacheDir}:`, dirError.message);
+          }
+        }
         
       } catch (cacheError) {
         console.error('Error saving cached config:', cacheError);
@@ -1357,17 +1385,23 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       }
     `;
 
-    // Convert tiers to metafield format
+    // Convert tiers to metafield format - now using product IDs instead of tags
     const tiersConfig = tiers.map((tier, index) => ({
       id: tier.id,
       name: tier.name,
       thresholdAmount: tier.thresholdAmount,
-      tag: `tier${index + 1}-gift`,
-      maxSelections: tier.maxSelections
+      maxSelections: tier.maxSelections,
+      // Use collection product IDs if available, otherwise fall back to individual giftProductIds
+      productIds: tier.collectionProductIds || tier.giftProductIds || [],
+      collectionId: tier.collectionId || null,
+      collectionHandle: tier.collectionHandle || null
     }));
 
     console.log('🎯 Creating discount with function ID:', functionId);
-    console.log('🎯 Tiers configuration:', tiersConfig);
+    console.log('🎯 Tiers configuration (with product IDs):');
+    tiersConfig.forEach((tier, index) => {
+      console.log(`  Tier ${index + 1}: ${tier.name}, threshold: $${(tier.thresholdAmount / 100).toFixed(2)}, products: ${tier.productIds.length}`);
+    });
     
     // Create a unique title with timestamp
     const uniqueTitle = `GWP Tiered Discount ${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
