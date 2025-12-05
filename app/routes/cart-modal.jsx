@@ -1,6 +1,3 @@
-import { unauthenticated } from "../shopify.server";
-import { getGWPSettings } from "../lib/storage.server";
-
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get('shop');
@@ -8,16 +5,22 @@ export const loader = async ({ request }) => {
     return new Response("Missing shop parameter", { status: 400 });
   }
   
-  // Fetch settings server-side via Admin API and embed them (no Storefront token needed)
+  // Fetch settings from the public config endpoint (no admin auth required)
   let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
   try {
-    const { admin } = await unauthenticated.admin(shop);
-    const settings = await getGWPSettings(admin, shop);
-    embeddedConfig = {
-      tiers: settings.tiers || [],
-      progressBar: settings.progressBar || null,
-      isActive: settings.isActive !== false
-    };
+    const baseUrl = `${url.origin}`;
+    const configUrl = `${baseUrl}/app/gwp/config?shop=${encodeURIComponent(shop)}`;
+    const resp = await fetch(configUrl);
+    if (resp.ok) {
+      const data = await resp.json();
+      embeddedConfig = {
+        tiers: data.tiers || [],
+        progressBar: data.progressBar || null,
+        isActive: data.isActive !== false,
+      };
+    } else {
+      console.error("Cart-modal loader: config endpoint returned", resp.status);
+    }
   } catch (err) {
     console.error("Cart-modal loader: failed to load settings for", shop, err);
   }
