@@ -1127,9 +1127,11 @@ export const loader = async ({ request }) => {
       
       // No external fetch: use embedded config
       async function fetchGWPConfig() {
-        const tiers = EMBEDDED_GWP_CONFIG.tiers || [];
+        gwpConfig = EMBEDDED_GWP_CONFIG.tiers || [];
         progressBarSettings = EMBEDDED_GWP_CONFIG.progressBar || null;
-        return tiers;
+        // Expose for debugging
+        window.gwpConfig = gwpConfig;
+        return gwpConfig;
       }
       
       // Check if modal should auto-show based on settings
