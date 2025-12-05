@@ -106,7 +106,7 @@ export function cartLinesDiscountsGenerateRun(input) {
       const isMatch = tier.productIds.includes(productId);
       
       if (isMatch) {
-        const productTitle = line.merchandise?.product?.title || 'Unknown';
+          const productTitle = line.merchandise?.product?.title || 'Unknown';
         console.log(`  ✓ ${tierName} Tier: Product "${productTitle}" (${productId}) matches tier collection`);
       }
       

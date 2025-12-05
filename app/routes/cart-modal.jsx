@@ -5,24 +5,24 @@ export const loader = async ({ request }) => {
     return new Response("Missing shop parameter", { status: 400 });
   }
   
-  // Fetch settings from the public config endpoint (no admin auth required)
+  // Fetch settings server-side via Admin API only (no public fallback)
   let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
   try {
-    const baseUrl = `${url.origin}`;
-    const configUrl = `${baseUrl}/app/gwp/config?shop=${encodeURIComponent(shop)}`;
-    const resp = await fetch(configUrl);
-    if (resp.ok) {
-      const data = await resp.json();
-      embeddedConfig = {
-        tiers: data.tiers || [],
-        progressBar: data.progressBar || null,
-        isActive: data.isActive !== false,
-      };
+    const { admin } = await (await import("../shopify.server")).unauthenticated.admin(shop);
+    const { getGWPSettings } = await import("../lib/storage.server");
+    const settings = await getGWPSettings(admin, shop);
+    embeddedConfig = {
+      tiers: settings.tiers || [],
+      progressBar: settings.progressBar || null,
+      isActive: settings.isActive !== false,
+    };
+    if (!embeddedConfig.tiers || embeddedConfig.tiers.length === 0) {
+      console.warn("Cart-modal loader: No tiers embedded for shop", shop);
     } else {
-      console.error("Cart-modal loader: config endpoint returned", resp.status);
+      console.log("Cart-modal loader: Successfully loaded tiers for shop", shop);
     }
   } catch (err) {
-    console.error("Cart-modal loader: failed to load settings for", shop, err);
+    console.error("Cart-modal loader: admin fetch failed for", shop, err);
   }
   
   const configJson = JSON.stringify(embeddedConfig);
