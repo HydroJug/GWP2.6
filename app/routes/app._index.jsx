@@ -363,7 +363,9 @@ export const action = async ({ request }) => {
       try {
         const storefrontToken = await getOrCreateStorefrontToken(admin);
         if (storefrontToken) {
-          console.log('Storefront Access Token is available');
+          console.log('Storefront Access Token created/loaded for', session.shop, storefrontToken);
+        } else {
+          console.warn('Storefront Access Token is null after save for', session.shop);
         }
       } catch (tokenError) {
         console.error('Error ensuring Storefront token:', tokenError.message);

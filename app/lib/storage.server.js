@@ -117,6 +117,31 @@ export async function getOrCreateStorefrontToken(admin) {
       console.log('Using existing Storefront Access Token');
       return existingToken;
     }
+
+    // Next, see if a token already exists for this app installation
+    try {
+      const listResponse = await admin.graphql(
+        `#graphql
+          query {
+            storefrontAccessTokens(first: 5) {
+              edges {
+                node {
+                  accessToken
+                }
+              }
+            }
+          }`
+      );
+      const listData = await listResponse.json();
+      const firstToken = listData.data?.storefrontAccessTokens?.edges?.[0]?.node?.accessToken;
+      if (firstToken) {
+        console.log('Found existing Storefront Access Token via listing, storing it');
+        await storeToken(admin, firstToken);
+        return firstToken;
+      }
+    } catch (listError) {
+      console.error('Error listing Storefront Access Tokens (non-fatal):', listError);
+    }
     
     // Create a new Storefront Access Token
     console.log('Creating new Storefront Access Token...');
@@ -153,51 +178,54 @@ export async function getOrCreateStorefrontToken(admin) {
     const newToken = createData.data?.storefrontAccessTokenCreate?.storefrontAccessToken?.accessToken;
     
     if (!newToken) {
-      console.error('No token returned from storefrontAccessTokenCreate');
+      console.error('No token returned from storefrontAccessTokenCreate:', JSON.stringify(createData));
       return null;
     }
     
-    // Store the token in app metafield for future use
-    const appResponse = await admin.graphql(
-      `#graphql
-        query {
-          currentAppInstallation {
-            id
-          }
-        }`
-    );
-    const appData = await appResponse.json();
-    const appInstallationId = appData.data?.currentAppInstallation?.id;
-    
-    if (appInstallationId) {
-      await admin.graphql(
-        `#graphql
-          mutation saveToken($metafields: [MetafieldsSetInput!]!) {
-            metafieldsSet(metafields: $metafields) {
-              metafields { id }
-              userErrors { message }
-            }
-          }`,
-        {
-          variables: {
-            metafields: [{
-              ownerId: appInstallationId,
-              namespace: "gwp_internal",
-              key: "storefront_token",
-              type: "single_line_text_field",
-              value: newToken
-            }]
-          }
-        }
-      );
-      console.log('Storefront Access Token created and stored');
-    }
+    await storeToken(admin, newToken);
+    console.log('Storefront Access Token created and stored');
     
     return newToken;
     
   } catch (error) {
     console.error('Error getting/creating Storefront token:', error);
     return null;
+  }
+}
+
+async function storeToken(admin, token) {
+  const appResponse = await admin.graphql(
+    `#graphql
+      query {
+        currentAppInstallation {
+          id
+        }
+      }`
+  );
+  const appData = await appResponse.json();
+  const appInstallationId = appData.data?.currentAppInstallation?.id;
+  
+  if (appInstallationId) {
+    await admin.graphql(
+      `#graphql
+        mutation saveToken($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields { id }
+            userErrors { message }
+          }
+        }`,
+      {
+        variables: {
+          metafields: [{
+            ownerId: appInstallationId,
+            namespace: "gwp_internal",
+            key: "storefront_token",
+            type: "single_line_text_field",
+            value: token
+          }]
+        }
+      }
+    );
   }
 }
 
