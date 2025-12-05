@@ -2,8 +2,8 @@
   "tiers": [
     {
       "id": "tier1764699972211",
-      "name": "Tier 1 TEST",
-      "thresholdAmount": 7300,
+      "name": "Tier 1 TEST2",
+      "thresholdAmount": 7400,
       "description": "Choose 1 free gift",
       "maxSelections": 1,
       "collectionId": "240960405694",

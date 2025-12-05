@@ -107,12 +107,33 @@ export const loader = async ({ request }) => {
     };
   }) || [];
 
+  // Get the Storefront Access Token if it exists
+  let storefrontToken = null;
+  try {
+    const tokenResponse = await admin.graphql(
+      `#graphql
+        query {
+          currentAppInstallation {
+            metafield(namespace: "gwp_internal", key: "storefront_token") {
+              value
+            }
+          }
+        }`
+    );
+    const tokenData = await tokenResponse.json();
+    storefrontToken = tokenData.data?.currentAppInstallation?.metafield?.value || null;
+  } catch (error) {
+    console.error('Error fetching Storefront token:', error);
+  }
+
   return json({ 
     settings: {
       tiers: tiersWithProducts,
       isActive: settings.isActive,
       progressBar: settings.progressBar || null
-    }
+    },
+    storefrontToken,
+    shop: session.shop
   });
 };
 
@@ -489,9 +510,15 @@ export const action = async ({ request }) => {
 };
 
 export default function Index() {
-  const { settings } = useLoaderData();
+  const { settings, storefrontToken, shop } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
+  
+  // Generate the script URL with token
+  const appUrl = typeof window !== 'undefined' ? window.location.origin : 'https://gwp-2-5.vercel.app';
+  const scriptUrl = storefrontToken 
+    ? `${appUrl}/cart-modal?shop=${shop}&token=${storefrontToken}`
+    : `${appUrl}/cart-modal?shop=${shop}`;
   
   const [tiers, setTiers] = useState(settings.tiers || []);
   const [progressBarConfig, setProgressBarConfig] = useState({
@@ -688,6 +715,30 @@ export default function Index() {
                     and can select multiple gifts if configured. Tiers are automatically sorted by threshold amount.
                   </p>
                 </Banner>
+
+                {storefrontToken && (
+                  <Banner status="success" title="Script Installation">
+                    <BlockStack gap="200">
+                      <Text>Add this script to your theme to enable the GWP modal:</Text>
+                      <Box background="bg-surface-secondary" padding="300" borderRadius="100">
+                        <Text variant="bodyMd" fontFamily="mono" breakWord>
+                          {`<script src="${scriptUrl}"></script>`}
+                        </Text>
+                      </Box>
+                      <Text variant="bodySm" color="subdued">
+                        The Storefront Access Token is included in the URL for reliable config loading.
+                      </Text>
+                    </BlockStack>
+                  </Banner>
+                )}
+                
+                {!storefrontToken && (
+                  <Banner status="warning" title="Script Installation">
+                    <Text>
+                      Save your settings to generate a Storefront Access Token. This enables reliable config loading on your storefront.
+                    </Text>
+                  </Banner>
+                )}
 
                 <InlineStack align="space-between">
                   <Text as="h3" variant="headingMd">

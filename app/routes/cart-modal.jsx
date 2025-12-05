@@ -1,36 +1,6 @@
-import { unauthenticated } from "../shopify.server";
-
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
-  const shop = url.searchParams.get('shop') || 'hydrojug.myshopify.com';
-  let storefrontToken = url.searchParams.get('token') || '';
-  
-  // Try to get the stored Storefront Access Token if not provided
-  if (!storefrontToken) {
-    try {
-      const { admin } = await unauthenticated.admin(shop);
-      const tokenResponse = await admin.graphql(
-        `#graphql
-          query {
-            currentAppInstallation {
-              metafield(namespace: "gwp_internal", key: "storefront_token") {
-                value
-              }
-            }
-          }`
-      );
-      const tokenData = await tokenResponse.json();
-      storefrontToken = tokenData.data?.currentAppInstallation?.metafield?.value || '';
-      
-      if (storefrontToken) {
-        console.log(`Cart-modal: Retrieved stored Storefront token for ${shop}`);
-      }
-    } catch (error) {
-      console.log(`Cart-modal: Could not retrieve stored token for ${shop}:`, error.message);
-    }
-  }
-  
-  console.log(`Cart-modal: Serving script for ${shop}, token available: ${storefrontToken ? 'yes' : 'no'}`);
+  const storefrontToken = url.searchParams.get('token') || '';
   
   // Generate the cart modal HTML/JS with embedded config
   const cartModalScript = `
@@ -1127,10 +1097,10 @@ export const loader = async ({ request }) => {
       // Store progress bar config for modal behavior
       let progressBarSettings = null;
       
-      // Initial config - will be populated from Storefront API or config API
+      // Initial config - will be populated from Storefront API
       let FETCHED_GWP_CONFIG = null;
       
-      // Fetch GWP configuration - uses Storefront API if token available, falls back to config API
+      // Fetch GWP configuration - requires Storefront API token
       async function fetchGWPConfig() {
         try {
           // If we already fetched, return cached
@@ -1139,18 +1109,14 @@ export const loader = async ({ request }) => {
             return FETCHED_GWP_CONFIG.tiers;
           }
           
-          // Try Storefront API first if we have a token
-          if (STOREFRONT_TOKEN) {
-            console.log('🎁 GWP Modal: Fetching config from Storefront API');
-            const storefrontConfig = await fetchFromStorefrontAPI();
-            if (storefrontConfig) {
-              return storefrontConfig;
-            }
+          if (!STOREFRONT_TOKEN) {
+            console.warn('🎁 GWP Modal: Missing Storefront Access Token. Falling back to config API (dev-only).');
+            return await fetchFromConfigAPI();
           }
           
-          // Fall back to config API
-          console.log('🎁 GWP Modal: Fetching config from config API');
-          return await fetchFromConfigAPI();
+          console.log('🎁 GWP Modal: Fetching config from Storefront API');
+          const storefrontConfig = await fetchFromStorefrontAPI();
+          return storefrontConfig || [];
           
         } catch (error) {
           errorLog('Error fetching GWP config:', error);
@@ -1214,7 +1180,7 @@ export const loader = async ({ request }) => {
         }
       }
       
-      // Fetch from our config API (fallback)
+      // Helper to log tier details
       async function fetchFromConfigAPI() {
         try {
           const scriptElement = document.currentScript || document.querySelector('script[src*="cart-modal"]');
@@ -1248,8 +1214,8 @@ export const loader = async ({ request }) => {
           const tiers = config.tiers || [];
           progressBarSettings = config.progressBar || null;
           
-          console.log('🎁 GWP Modal: Progress bar settings:', progressBarSettings);
-          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers from config API');
+          console.log('🎁 GWP Modal: Progress bar settings (fallback):', progressBarSettings);
+          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers from config API (fallback)');
           
           logTierDetails(tiers);
           return tiers;
@@ -1260,7 +1226,6 @@ export const loader = async ({ request }) => {
         }
       }
       
-      // Helper to log tier details
       function logTierDetails(tiers) {
         tiers.forEach((tier, index) => {
           console.log(\`GWP Debug: Tier \${index}:\`, {

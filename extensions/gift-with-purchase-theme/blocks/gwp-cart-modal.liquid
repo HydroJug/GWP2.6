@@ -9,6 +9,12 @@
   {% assign gwp_metafield_config = app.metafields.gwp_settings.config.value %}
 {% endif %}
 
+{% comment %} Get Storefront Access Token from app metafields {% endcomment %}
+{% assign gwp_storefront_token = "" %}
+{% if app.metafields.gwp_internal.storefront_token %}
+  {% assign gwp_storefront_token = app.metafields.gwp_internal.storefront_token.value %}
+{% endif %}
+
 <script>
   // Load the GWP cart modal script and progress bar
   (function() {
@@ -741,10 +747,19 @@
     // CART MODAL SCRIPT LOADING
     // ============================================
     
+    // Storefront Access Token for reliable config loading
+    const STOREFRONT_TOKEN = {{ gwp_storefront_token | json | default: '""' }};
+    
     // Function to load the cart modal script
     const loadCartModalScript = (appUrl) => {
       const script = document.createElement('script');
-      script.src = `${appUrl}/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
+      // Include token in URL for reliable Storefront API access
+      let scriptUrl = `${appUrl}/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
+      if (STOREFRONT_TOKEN) {
+        scriptUrl += `&token=${encodeURIComponent(STOREFRONT_TOKEN)}`;
+        debugLog('Including Storefront token in script URL');
+      }
+      script.src = scriptUrl;
       script.async = true;
       script.onload = () => {
         debugLog('Cart modal script loaded successfully');
