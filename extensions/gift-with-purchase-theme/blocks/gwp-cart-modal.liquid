@@ -751,6 +751,13 @@
     // Storefront Access Token for reliable config loading
     const STOREFRONT_TOKEN = {{ gwp_storefront_token | json | default: '""' }};
     
+    // Set global config BEFORE loading the cart modal script
+    // This way the script can use it immediately without fetching
+    if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
+      window.__GWP_EMBEDDED_CONFIG__ = gwpMetafieldConfig;
+      debugLog('Set global __GWP_EMBEDDED_CONFIG__ from Liquid metafields');
+    }
+    
     // Function to load the cart modal script
     const loadCartModalScript = (appUrl) => {
       const script = document.createElement('script');
@@ -764,6 +771,10 @@
       script.async = true;
       script.onload = () => {
         debugLog('Cart modal script loaded successfully');
+        // Also expose the config to the cart-modal after it loads
+        if (window.__GWP_EMBEDDED_CONFIG__) {
+          debugLog('Config available via window.__GWP_EMBEDDED_CONFIG__');
+        }
       };
       script.onerror = (error) => {
         console.error('🎁 GWP: Failed to load cart modal script', error);

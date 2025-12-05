@@ -1329,17 +1329,31 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       console.log('🎯 Found target GWP function:', gwpFunction);
     }
     
-    // Fallback to hardcoded ID if no function found
+    // If no function found by title, try to find ANY discount function from our app
     if (!targetFunctionId) {
-      targetFunctionId = "dba8b188-8a04-42ed-a0f8-e377732b79f4";
-      console.log('🎯 Using hardcoded function ID:', targetFunctionId);
+      console.log('🎯 No GWP function found by title, looking for any discount function...');
+      const anyDiscountFunction = functionData.data?.shopifyFunctions?.nodes?.find(node => 
+        node.apiType === 'discount'
+      );
+      if (anyDiscountFunction) {
+        targetFunctionId = anyDiscountFunction.id;
+        console.log('🎯 Using discount function:', anyDiscountFunction.title, 'ID:', targetFunctionId);
+      } else {
+        console.error('🎯 No discount function found at all. Available functions:', 
+          functionData.data?.shopifyFunctions?.nodes?.map(n => ({ title: n.title, apiType: n.apiType })));
+        throw new Error("No discount function found for this app. Deploy the discount extension first.");
+      }
     }
 
-    // Delete ALL discounts that match our function ID OR have GWP in the title
-    const deleteMutation = `
-      mutation discountAutomaticDelete($id: ID!) {
-        discountAutomaticDelete(id: $id) {
-          deletedAutomaticDiscountId
+    // DEACTIVATE (not delete) all discounts that match our function ID OR have GWP in the title
+    const deactivateMutation = `
+      mutation discountAutomaticAppUpdate($id: ID!, $automaticAppDiscount: DiscountAutomaticAppInput!) {
+        discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $automaticAppDiscount) {
+          automaticAppDiscount {
+            discountId
+            title
+            status
+          }
           userErrors {
             field
             code
@@ -1349,10 +1363,10 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       }
     `;
 
-    let deletedCount = 0;
+    let deactivatedCount = 0;
     console.log('🎯 Target function ID for matching:', targetFunctionId);
     
-    // Try to delete ALL discount nodes that match our criteria
+    // Try to DEACTIVATE ALL discount nodes that match our criteria
     // and handle errors gracefully (some might not be DiscountAutomaticApp types)
     for (const node of allDiscounts) {
       const discount = node?.discount;
@@ -1370,6 +1384,12 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       const title = discount?.title?.toLowerCase() || '';
       const status = discount?.status;
       
+      // Skip if already inactive/expired
+      if (status === 'EXPIRED' || status === 'SCHEDULED') {
+        console.log(`🎯 Skipping node ${discountId} - already ${status}`);
+        continue;
+      }
+      
       console.log(`🎯 Checking node ${discountId}:`, {
         hasDiscount: !!discount,
         title: discount?.title || 'Unknown',
@@ -1379,43 +1399,47 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
         matchesTitle: title.includes('gwp') || title.includes('gift') || title.includes('tiered discount')
       });
       
-      // Delete if:
+      // Deactivate if:
       // 1. Uses the same functionId as our target function
       // 2. OR title contains "GWP", "Gift", or "Tiered Discount" (case insensitive)
       const matchesFunctionId = discountFunctionId === targetFunctionId;
       const matchesTitle = title.includes('gwp') || title.includes('gift') || title.includes('tiered discount');
-      const shouldTryDelete = matchesFunctionId || matchesTitle;
+      const shouldDeactivate = matchesFunctionId || matchesTitle;
       
-      if (shouldTryDelete) {
-        console.log(`🎯 Attempting to delete discount node ${discountId} (Title: ${discount?.title || 'Unknown'}, Status: ${status || 'Unknown'})`);
+      if (shouldDeactivate) {
+        console.log(`🎯 Attempting to DEACTIVATE discount node ${discountId} (Title: ${discount?.title || 'Unknown'}, Status: ${status || 'Unknown'})`);
         
         try {
-          const deleteResponse = await admin.graphql(deleteMutation, {
+          // Deactivate by setting endsAt to now (makes it expired)
+          const deactivateResponse = await admin.graphql(deactivateMutation, {
             variables: {
-              id: discountId
+              id: discountId,
+              automaticAppDiscount: {
+                endsAt: new Date().toISOString()
+              }
             }
           });
           
-          const deleteData = await deleteResponse.json();
+          const deactivateData = await deactivateResponse.json();
           
-          if (deleteData.data?.discountAutomaticDelete?.userErrors?.length > 0) {
-            const errors = deleteData.data.discountAutomaticDelete.userErrors;
-            console.error(`🎯 Error deleting node ${discountId}:`, errors);
-            // Don't count as deleted if there were errors
-          } else if (deleteData.data?.discountAutomaticDelete?.deletedAutomaticDiscountId) {
-            console.log(`🎯 Successfully deleted discount: ${discount?.title || discountId}`);
-            deletedCount++;
+          if (deactivateData.data?.discountAutomaticAppUpdate?.userErrors?.length > 0) {
+            const errors = deactivateData.data.discountAutomaticAppUpdate.userErrors;
+            console.error(`🎯 Error deactivating node ${discountId}:`, errors);
+            // Don't count as deactivated if there were errors
+          } else if (deactivateData.data?.discountAutomaticAppUpdate?.automaticAppDiscount) {
+            console.log(`🎯 Successfully deactivated discount: ${discount?.title || discountId}`);
+            deactivatedCount++;
           } else {
-            console.log(`🎯 Delete response for ${discountId}:`, deleteData);
+            console.log(`🎯 Deactivate response for ${discountId}:`, deactivateData);
           }
         } catch (error) {
-          console.error(`🎯 Exception deleting node ${discountId}:`, error.message);
+          console.error(`🎯 Exception deactivating node ${discountId}:`, error.message);
           // Continue - this might not be a DiscountAutomaticApp type
         }
       }
     }
 
-    console.log(`🎯 Deleted ${deletedCount} existing GWP discount(s)`);
+    console.log(`🎯 Deactivated ${deactivatedCount} existing GWP discount(s)`);
 
     // Wait a moment for deletion to complete
     await new Promise(resolve => setTimeout(resolve, 2000));

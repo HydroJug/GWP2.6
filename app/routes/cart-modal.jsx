@@ -1194,13 +1194,25 @@ export const loader = async ({ request }) => {
         }
       }
       
-      // Embedded config (fetched server-side, no client fetch or token needed)
-      const EMBEDDED_GWP_CONFIG = ${configJson};
+      // Server-embedded config (may be empty if admin fetch failed)
+      const SERVER_EMBEDDED_CONFIG = ${configJson};
+      
+      // PRIORITY: Check for config set by the Liquid embed (window.__GWP_EMBEDDED_CONFIG__)
+      // This is the most reliable source because it comes directly from Shopify metafields via Liquid
+      const EMBEDDED_GWP_CONFIG = window.__GWP_EMBEDDED_CONFIG__ || SERVER_EMBEDDED_CONFIG;
+      
+      if (window.__GWP_EMBEDDED_CONFIG__) {
+        console.log('🎁 GWP Modal: Using config from Liquid embed (window.__GWP_EMBEDDED_CONFIG__)');
+      } else if (SERVER_EMBEDDED_CONFIG.tiers && SERVER_EMBEDDED_CONFIG.tiers.length > 0) {
+        console.log('🎁 GWP Modal: Using server-embedded config');
+      } else {
+        console.warn('🎁 GWP Modal: No config available from Liquid or server');
+      }
       
       // Store progress bar config for modal behavior
       let progressBarSettings = EMBEDDED_GWP_CONFIG.progressBar || null;
       
-      // No external fetch: use embedded config
+      // No external fetch: use embedded config (from Liquid or server)
       async function fetchGWPConfig() {
         gwpConfig = EMBEDDED_GWP_CONFIG.tiers || [];
         progressBarSettings = EMBEDDED_GWP_CONFIG.progressBar || null;
