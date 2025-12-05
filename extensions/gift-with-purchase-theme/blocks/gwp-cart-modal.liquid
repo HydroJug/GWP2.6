@@ -25,8 +25,9 @@
     }
     window.gwpCartModalLoaded = true;
     
-    // Get shop domain
-    const shopDomain = window.location.hostname;
+    // Get shop domain - use the .myshopify.com domain for Admin API compatibility
+    // window.Shopify.shop returns the actual myshopify.com domain even on custom domains
+    const shopDomain = window.Shopify?.shop || '{{ shop.permanent_domain }}';
     
     // Configuration from block settings
     const config = {
