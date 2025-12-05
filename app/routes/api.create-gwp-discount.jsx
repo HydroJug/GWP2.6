@@ -97,10 +97,13 @@ export const action = async ({ request }) => {
       throw new Error("GWP discount function not found");
     }
 
+    // Use a clearer, time-stamped title for easier identification
+    const uniqueTitle = `GWP Gift with Purchase ${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
+
     const createResponse = await admin.graphql(createMutation, {
       variables: {
         automaticAppDiscount: {
-          title: "GWP Tiered Discount",
+          title: uniqueTitle,
           functionId: functionId,
           discountClasses: ["PRODUCT"],
           startsAt: new Date().toISOString(),
