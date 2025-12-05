@@ -1099,6 +1099,11 @@ export const loader = async ({ request }) => {
       
       // Initial config - will be populated from Storefront API
       let FETCHED_GWP_CONFIG = null;
+      const IS_DEV =
+        location.hostname.includes('localhost') ||
+        location.hostname.includes('127.0.0.1') ||
+        location.hostname.includes('ngrok') ||
+        location.hostname.includes('trycloudflare');
       
       // Fetch GWP configuration - requires Storefront API token
       async function fetchGWPConfig() {
@@ -1110,8 +1115,12 @@ export const loader = async ({ request }) => {
           }
           
           if (!STOREFRONT_TOKEN) {
-            console.warn('🎁 GWP Modal: Missing Storefront Access Token. Falling back to config API (dev-only).');
-            return await fetchFromConfigAPI();
+            if (IS_DEV) {
+              console.warn('🎁 GWP Modal: Missing Storefront Access Token (dev). Falling back to config API.');
+              return await fetchFromConfigAPI();
+            }
+            console.error('🎁 GWP Modal: Missing Storefront Access Token. Please ensure the token is passed in the script URL.');
+            return [];
           }
           
           console.log('🎁 GWP Modal: Fetching config from Storefront API');
