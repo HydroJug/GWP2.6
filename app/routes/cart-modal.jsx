@@ -5,10 +5,13 @@ export const loader = async ({ request }) => {
     return new Response("Missing shop parameter", { status: 400 });
   }
   
-  // Fetch settings server-side via Admin API only (fallback to shop metafield)
+  // Fetch settings server-side via Admin API; fallback to shop metafield; last-resort: public config endpoint
   let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
+  let loaded = false;
+  let admin = null;
   try {
-    const { admin } = await (await import("../shopify.server")).unauthenticated.admin(shop);
+    const shopify = await import("../shopify.server");
+    admin = (await shopify.unauthenticated.admin(shop)).admin;
     const { getGWPSettings } = await import("../lib/storage.server");
     const settings = await getGWPSettings(admin, shop);
     embeddedConfig = {
@@ -16,41 +19,85 @@ export const loader = async ({ request }) => {
       progressBar: settings.progressBar || null,
       isActive: settings.isActive !== false,
     };
-    if (!embeddedConfig.tiers || embeddedConfig.tiers.length === 0) {
-      console.warn("Cart-modal loader: No tiers from app metafield for shop", shop, "- trying shop metafield fallback");
-      // Fallback: read shop metafield directly
-      try {
-        const shopResp = await admin.graphql(
-          `#graphql
-            query getShopConfig {
-              shop {
-                metafield(namespace: "gwp", key: "config") {
-                  value
-                }
-              }
-            }`
-        );
-        const shopData = await shopResp.json();
-        const shopValue = shopData.data?.shop?.metafield?.value;
-        if (shopValue) {
-          const cfg = JSON.parse(shopValue);
-          embeddedConfig = {
-            tiers: cfg.tiers || [],
-            progressBar: cfg.progressBar || null,
-            isActive: cfg.isActive !== false,
-          };
-          console.log("Cart-modal loader: Loaded tiers from shop metafield for", shop);
-        } else {
-          console.warn("Cart-modal loader: Shop metafield gwp.config is empty for", shop);
-        }
-      } catch (shopErr) {
-        console.error("Cart-modal loader: Failed shop metafield fallback for", shop, shopErr);
-      }
-    } else {
-      console.log("Cart-modal loader: Successfully loaded tiers for shop", shop);
-    }
+    loaded = Array.isArray(embeddedConfig.tiers) && embeddedConfig.tiers.length > 0;
   } catch (err) {
     console.error("Cart-modal loader: admin fetch failed for", shop, err);
+  }
+  
+  // Fallback: shop metafield via Admin API if not loaded
+  if (!loaded && admin) {
+    try {
+      console.warn("Cart-modal loader: No tiers from app metafield for shop", shop, "- trying shop metafield fallback");
+      const shopResp = await admin.graphql(
+        `#graphql
+          query getShopConfig {
+            shop {
+              metafield(namespace: "gwp", key: "config") {
+                value
+              }
+            }
+          }`
+      );
+      const shopData = await shopResp.json();
+      const shopValue = shopData.data?.shop?.metafield?.value;
+      if (shopValue) {
+        const cfg = JSON.parse(shopValue);
+        embeddedConfig = {
+          tiers: cfg.tiers || [],
+          progressBar: cfg.progressBar || null,
+          isActive: cfg.isActive !== false,
+        };
+        loaded = Array.isArray(embeddedConfig.tiers) && embeddedConfig.tiers.length > 0;
+        if (loaded) {
+          console.log("Cart-modal loader: Loaded tiers from shop metafield for", shop);
+        } else {
+          console.warn("Cart-modal loader: Shop metafield gwp.config has no tiers for", shop);
+        }
+      } else {
+        console.warn("Cart-modal loader: Shop metafield gwp.config is empty for", shop);
+      }
+    } catch (shopErr) {
+      console.error("Cart-modal loader: Failed shop metafield fallback for", shop, shopErr);
+    }
+  }
+  
+  // Last resort: public config endpoint (in case admin access failed)
+  if (!loaded) {
+    const baseUrl = `${url.origin}`;
+    const tryShops = [shop];
+    if (shop.startsWith("www.")) {
+      tryShops.push(shop.replace(/^www\./, ""));
+    } else {
+      tryShops.push(`www.${shop}`);
+    }
+    for (const s of tryShops) {
+      try {
+        const resp = await fetch(`${baseUrl}/app/gwp/config?shop=${encodeURIComponent(s)}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.tiers && data.tiers.length > 0) {
+            embeddedConfig = {
+              tiers: data.tiers || [],
+              progressBar: data.progressBar || null,
+              isActive: data.isActive !== false,
+            };
+            loaded = true;
+            console.log("Cart-modal loader: Loaded tiers from public config endpoint for", s);
+            break;
+          }
+        } else {
+          console.error("Cart-modal loader: public config endpoint returned", resp.status, "for", s);
+        }
+      } catch (err) {
+        console.error("Cart-modal loader: public config fetch failed for", s, err);
+      }
+    }
+  }
+  
+  if (!loaded) {
+    console.warn("Cart-modal loader: No tiers embedded after all attempts for shop", shop);
+  } else {
+    console.log("Cart-modal loader: Successfully loaded tiers for shop", shop);
   }
   
   const configJson = JSON.stringify(embeddedConfig);
