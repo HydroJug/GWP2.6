@@ -1,34 +1,36 @@
-import { json } from "@remix-run/node";
 import { unauthenticated } from "../shopify.server";
-import { getGWPSettings } from "../lib/storage.server";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const shop = url.searchParams.get('shop') || 'hydrojug.myshopify.com';
+  let storefrontToken = url.searchParams.get('token') || '';
   
-  // Fetch GWP settings directly from Shopify metafields
-  // This runs on the server, so we can authenticate
-  let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
-  
-  try {
-    // Use unauthenticated admin client to read metafields
-    const { admin } = await unauthenticated.admin(shop);
-    const settings = await getGWPSettings(admin, shop);
-    
-    embeddedConfig = {
-      tiers: settings.tiers || [],
-      progressBar: settings.progressBar || null,
-      isActive: settings.isActive !== false
-    };
-    
-    console.log(`Cart-modal: Loaded ${embeddedConfig.tiers.length} tiers for ${shop} from metafields`);
-  } catch (error) {
-    console.error('Cart-modal: Error loading settings from metafields:', error.message);
-    // Continue with empty config - the script will still work, just no GWP
+  // Try to get the stored Storefront Access Token if not provided
+  if (!storefrontToken) {
+    try {
+      const { admin } = await unauthenticated.admin(shop);
+      const tokenResponse = await admin.graphql(
+        `#graphql
+          query {
+            currentAppInstallation {
+              metafield(namespace: "gwp_internal", key: "storefront_token") {
+                value
+              }
+            }
+          }`
+      );
+      const tokenData = await tokenResponse.json();
+      storefrontToken = tokenData.data?.currentAppInstallation?.metafield?.value || '';
+      
+      if (storefrontToken) {
+        console.log(`Cart-modal: Retrieved stored Storefront token for ${shop}`);
+      }
+    } catch (error) {
+      console.log(`Cart-modal: Could not retrieve stored token for ${shop}:`, error.message);
+    }
   }
   
-  // Serialize config to embed in script
-  const configJson = JSON.stringify(embeddedConfig);
+  console.log(`Cart-modal: Serving script for ${shop}, token available: ${storefrontToken ? 'yes' : 'no'}`);
   
   // Generate the cart modal HTML/JS with embedded config
   const cartModalScript = `
@@ -80,7 +82,9 @@ export const loader = async ({ request }) => {
       const currentDomain = window.location.hostname;
       if (!shop) shop = currentDomain;
       
-      // Do not hardcode; backend will map aliases to canonical shop
+      // Storefront Access Token for reading metafields (passed via script URL)
+      const STOREFRONT_TOKEN = '${storefrontToken}';
+      
       // Debug suppressed
       
       // Unique namespace to avoid conflicts
@@ -1123,40 +1127,152 @@ export const loader = async ({ request }) => {
       // Store progress bar config for modal behavior
       let progressBarSettings = null;
       
-      // GWP Configuration - embedded directly from Shopify metafields at script load time
-      // No API calls needed - this is populated server-side when the script is requested
-      const EMBEDDED_GWP_CONFIG = ${configJson};
+      // Initial config - will be populated from Storefront API or config API
+      let FETCHED_GWP_CONFIG = null;
       
-      // Get GWP configuration (uses embedded config - no fetch needed!)
+      // Fetch GWP configuration - uses Storefront API if token available, falls back to config API
       async function fetchGWPConfig() {
         try {
-          console.log('🎁 GWP Modal: Using embedded config from metafields');
+          // If we already fetched, return cached
+          if (FETCHED_GWP_CONFIG && FETCHED_GWP_CONFIG.tiers && FETCHED_GWP_CONFIG.tiers.length > 0) {
+            console.log('🎁 GWP Modal: Using cached config');
+            return FETCHED_GWP_CONFIG.tiers;
+          }
           
-          const tiers = EMBEDDED_GWP_CONFIG.tiers || [];
+          // Try Storefront API first if we have a token
+          if (STOREFRONT_TOKEN) {
+            console.log('🎁 GWP Modal: Fetching config from Storefront API');
+            const storefrontConfig = await fetchFromStorefrontAPI();
+            if (storefrontConfig) {
+              return storefrontConfig;
+            }
+          }
           
-          // Store progress bar settings for modal behavior
-          progressBarSettings = EMBEDDED_GWP_CONFIG.progressBar || null;
-          console.log('🎁 GWP Modal: Progress bar settings:', progressBarSettings);
-          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers (embedded)');
+          // Fall back to config API
+          console.log('🎁 GWP Modal: Fetching config from config API');
+          return await fetchFromConfigAPI();
           
-          // Log each tier's details
-          tiers.forEach((tier, index) => {
-            console.log(\`GWP Debug: Tier \${index}:\`, {
-              id: tier.id,
-              name: tier.name,
-              thresholdAmount: tier.thresholdAmount,
-              collectionHandle: tier.collectionHandle,
-              collectionId: tier.collectionId,
-              collectionTitle: tier.collectionTitle,
-              hasGiftProducts: tier.giftProducts?.length || 0
-            });
-          });
-          
-          return tiers;
         } catch (error) {
-          errorLog('Error reading embedded GWP config:', error);
+          errorLog('Error fetching GWP config:', error);
           return [];
         }
+      }
+      
+      // Fetch from Storefront API using the access token
+      async function fetchFromStorefrontAPI() {
+        try {
+          const storefrontUrl = 'https://' + currentDomain + '/api/2024-01/graphql.json';
+          
+          const query = \`
+            query GetGWPConfig {
+              shop {
+                metafield(namespace: "gwp", key: "config") {
+                  value
+                }
+              }
+            }
+          \`;
+          
+          const response = await fetch(storefrontUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN
+            },
+            body: JSON.stringify({ query })
+          });
+          
+          if (!response.ok) {
+            console.error('🎁 GWP Modal: Storefront API error:', response.status);
+            return null;
+          }
+          
+          const data = await response.json();
+          const metafieldValue = data?.data?.shop?.metafield?.value;
+          
+          if (!metafieldValue) {
+            console.log('🎁 GWP Modal: No config metafield found in Storefront API');
+            return null;
+          }
+          
+          const config = JSON.parse(metafieldValue);
+          FETCHED_GWP_CONFIG = config;
+          
+          const tiers = config.tiers || [];
+          progressBarSettings = config.progressBar || null;
+          
+          console.log('🎁 GWP Modal: Progress bar settings:', progressBarSettings);
+          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers from Storefront API');
+          
+          logTierDetails(tiers);
+          return tiers;
+          
+        } catch (error) {
+          console.error('🎁 GWP Modal: Storefront API fetch error:', error);
+          return null;
+        }
+      }
+      
+      // Fetch from our config API (fallback)
+      async function fetchFromConfigAPI() {
+        try {
+          const scriptElement = document.currentScript || document.querySelector('script[src*="cart-modal"]');
+          const scriptUrl = scriptElement ? scriptElement.src : '';
+          const appUrl = scriptUrl ? new URL(scriptUrl).origin : '';
+          
+          if (!appUrl) {
+            console.error('🎁 GWP Modal: Could not determine app URL');
+            return [];
+          }
+          
+          const timestamp = Date.now();
+          const configUrl = appUrl + '/app/gwp/config?shop=' + encodeURIComponent(shop) + '&v=' + timestamp;
+          
+          const response = await fetch(configUrl);
+          
+          if (!response.ok) {
+            console.error('🎁 GWP Modal: Config API error:', response.status);
+            return [];
+          }
+          
+          const config = await response.json();
+          
+          if (!config || config.error) {
+            console.log('🎁 GWP Modal: Config API returned error:', config?.error || 'unknown');
+            return [];
+          }
+          
+          FETCHED_GWP_CONFIG = config;
+          
+          const tiers = config.tiers || [];
+          progressBarSettings = config.progressBar || null;
+          
+          console.log('🎁 GWP Modal: Progress bar settings:', progressBarSettings);
+          console.log('🎁 GWP Modal: Loaded', tiers.length, 'tiers from config API');
+          
+          logTierDetails(tiers);
+          return tiers;
+          
+        } catch (error) {
+          console.error('🎁 GWP Modal: Config API fetch error:', error);
+          return [];
+        }
+      }
+      
+      // Helper to log tier details
+      function logTierDetails(tiers) {
+        tiers.forEach((tier, index) => {
+          console.log(\`GWP Debug: Tier \${index}:\`, {
+            id: tier.id,
+            name: tier.name,
+            thresholdAmount: tier.thresholdAmount,
+            collectionHandle: tier.collectionHandle,
+            collectionId: tier.collectionId,
+            collectionTitle: tier.collectionTitle,
+            hasGiftProducts: tier.giftProducts?.length || 0
+          });
+        });
       }
       
       // Check if modal should auto-show based on settings

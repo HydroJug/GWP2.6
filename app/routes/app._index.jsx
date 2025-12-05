@@ -24,7 +24,7 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { json } from "@remix-run/node";
-import { getGWPSettings, saveGWPSettings } from "../lib/storage.server";
+import { getGWPSettings, saveGWPSettings, getOrCreateStorefrontToken } from "../lib/storage.server";
 
 
 
@@ -337,6 +337,16 @@ export const action = async ({ request }) => {
         progressBar: progressBar,
         isActive: true
       });
+      
+      // Ensure Storefront Access Token exists for reading config on storefront
+      try {
+        const storefrontToken = await getOrCreateStorefrontToken(admin);
+        if (storefrontToken) {
+          console.log('Storefront Access Token is available');
+        }
+      } catch (tokenError) {
+        console.error('Error ensuring Storefront token:', tokenError.message);
+      }
       
       // Also save to our config API for public access
       try {
