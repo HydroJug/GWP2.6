@@ -33,8 +33,7 @@
     const config = {
       enabled: {{ block.settings.enabled | json }},
       delay: {{ block.settings.delay | json }},
-      debug: {{ block.settings.debug | json }},
-      appUrl: {{ block.settings.app_url | json }}
+      debug: {{ block.settings.debug | json }}
     };
     
     function debugLog(...args) {
@@ -64,50 +63,17 @@
     const MAX_RETRIES = 15;
     const RETRY_DELAY = 1000;
     
-    // Load GWP configuration - prefer metafields, fall back to HTTP fetch
+    // Load GWP configuration from metafields only
     async function fetchGWPConfig() {
-      // First try to use config from app metafields (instant, no HTTP)
       if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
-        debugLog('Using config from app metafields (no HTTP fetch needed)');
+        debugLog('Using config from app metafields');
         gwpConfig = gwpMetafieldConfig;
         progressBarConfig = gwpMetafieldConfig.progressBar;
-        
-        debugLog('Config loaded from metafields:', {
-          tiersCount: gwpConfig.tiers?.length || 0,
-          progressBar: progressBarConfig
-        });
-        
         return gwpConfig;
       }
-      
-      // Fall back to HTTP fetch if metafields not available
-      debugLog('Metafields not available, falling back to HTTP fetch');
-      try {
-        const shop = window.Shopify?.shop || shopDomain;
-        const appUrl = config.appUrl || 'https://gwp-2-6.vercel.app';
-        
-        debugLog('Fetching config for shop:', shop);
-        
-        const response = await fetch(`${appUrl}/app/gwp/public/gwp-settings?shop=${encodeURIComponent(shop)}`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        gwpConfig = data;
-        progressBarConfig = data.progressBar;
-        
-        debugLog('Config loaded from HTTP:', {
-          tiersCount: gwpConfig.tiers?.length || 0,
-          progressBar: progressBarConfig
-        });
-        
-        return data;
-      } catch (error) {
-        console.error('🎁 GWP: Failed to load config:', error);
-        throw error;
-      }
+
+      debugLog('No metafield config available');
+      return null;
     }
     
     // Get current cart data
@@ -747,62 +713,16 @@
     // ============================================
     // CART MODAL SCRIPT LOADING
     // ============================================
-    
-    // Storefront Access Token for reliable config loading
-    const STOREFRONT_TOKEN = {{ gwp_storefront_token | json | default: '""' }};
-    
+
     // Set global config BEFORE loading the cart modal script
     // This way the script can use it immediately without fetching
     if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
       window.__GWP_EMBEDDED_CONFIG__ = gwpMetafieldConfig;
       debugLog('Set global __GWP_EMBEDDED_CONFIG__ from Liquid metafields');
     }
-    
-    // Function to load the cart modal script
-    const loadCartModalScript = (appUrl) => {
-      const script = document.createElement('script');
-      // Include token in URL for reliable Storefront API access
-      let scriptUrl = `${appUrl}/cart-modal?shop=${encodeURIComponent(shopDomain)}&v=${Date.now()}`;
-      if (STOREFRONT_TOKEN) {
-        scriptUrl += `&token=${encodeURIComponent(STOREFRONT_TOKEN)}`;
-        debugLog('Including Storefront token in script URL');
-      }
-      script.src = scriptUrl;
-      script.async = true;
-      script.onload = () => {
-        debugLog('Cart modal script loaded successfully');
-        // Also expose the config to the cart-modal after it loads
-        if (window.__GWP_EMBEDDED_CONFIG__) {
-          debugLog('Config available via window.__GWP_EMBEDDED_CONFIG__');
-        }
-      };
-      script.onerror = (error) => {
-        console.error('🎁 GWP: Failed to load cart modal script', error);
-      };
-      
-      try {
-        document.head.appendChild(script);
-        debugLog('Cart modal script tag added to head');
-      } catch (error) {
-        console.error('🎁 GWP: Error adding script to head:', error);
-      }
-    };
-    
-    // Get the app URL from config
-    const getAppUrl = () => {
-      if (config.appUrl && config.appUrl.trim()) {
-        return config.appUrl;
-      }
-      return 'https://gwp-2-6.vercel.app';
-    };
-    
+
     // Main initialization
     const initialize = async () => {
-      const appUrl = getAppUrl();
-      
-      // Load the cart modal script
-      loadCartModalScript(appUrl);
-      
       // Fetch config and cart data
       try {
         await fetchGWPConfig();
@@ -861,6 +781,8 @@
   })();
 </script>
 
+<script src="{{ 'gwp-cart-modal.js' | asset_url }}" defer></script>
+
 {% schema %}
 {
   "name": "GWP Cart Modal",
@@ -890,13 +812,6 @@
       "label": "Debug Mode",
       "default": false,
       "info": "Enable console logging for troubleshooting"
-    },
-    {
-      "type": "text",
-      "id": "app_url",
-      "label": "App URL",
-      "default": "https://gwp-2-6.vercel.app",
-      "info": "Your GWP app URL"
     }
   ]
 }

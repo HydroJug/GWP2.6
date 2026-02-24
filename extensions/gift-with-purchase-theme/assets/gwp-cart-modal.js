@@ -1,76 +1,3 @@
-export const loader = async ({ request }) => {
-  const url = new URL(request.url);
-  const shop = url.searchParams.get('shop');
-  if (!shop) {
-    return new Response("Missing shop parameter", { status: 400 });
-  }
-  
-  // Fetch settings server-side via Admin API; fallback to shop metafield; last-resort: public config endpoint
-  let embeddedConfig = { tiers: [], progressBar: null, isActive: false };
-  let loaded = false;
-  let admin = null;
-  try {
-    const shopify = await import("../shopify.server");
-    admin = (await shopify.unauthenticated.admin(shop)).admin;
-    const { getGWPSettings } = await import("../lib/storage.server");
-    const settings = await getGWPSettings(admin, shop);
-    embeddedConfig = {
-      tiers: settings.tiers || [],
-      progressBar: settings.progressBar || null,
-      isActive: settings.isActive !== false,
-    };
-    loaded = Array.isArray(embeddedConfig.tiers) && embeddedConfig.tiers.length > 0;
-  } catch (err) {
-    console.error("Cart-modal loader: admin fetch failed for", shop, err);
-  }
-  
-  // Fallback: shop metafield via Admin API if not loaded
-  if (!loaded && admin) {
-    try {
-      console.warn("Cart-modal loader: No tiers from app metafield for shop", shop, "- trying shop metafield fallback");
-      const shopResp = await admin.graphql(
-        `#graphql
-          query getShopConfig {
-            shop {
-              metafield(namespace: "gwp", key: "config") {
-                value
-              }
-            }
-          }`
-      );
-      const shopData = await shopResp.json();
-      const shopValue = shopData.data?.shop?.metafield?.value;
-      if (shopValue) {
-        const cfg = JSON.parse(shopValue);
-        embeddedConfig = {
-          tiers: cfg.tiers || [],
-          progressBar: cfg.progressBar || null,
-          isActive: cfg.isActive !== false,
-        };
-        loaded = Array.isArray(embeddedConfig.tiers) && embeddedConfig.tiers.length > 0;
-        if (loaded) {
-          console.log("Cart-modal loader: Loaded tiers from shop metafield for", shop);
-        } else {
-          console.warn("Cart-modal loader: Shop metafield gwp.config has no tiers for", shop);
-        }
-      } else {
-        console.warn("Cart-modal loader: Shop metafield gwp.config is empty for", shop);
-      }
-    } catch (shopErr) {
-      console.error("Cart-modal loader: Failed shop metafield fallback for", shop, shopErr);
-    }
-  }
-  
-  if (!loaded) {
-    console.warn("Cart-modal loader: No tiers embedded after all attempts for shop", shop);
-  } else {
-    console.log("Cart-modal loader: Successfully loaded tiers for shop", shop);
-  }
-  
-  const configJson = JSON.stringify(embeddedConfig);
-  
-  // Generate the cart modal HTML/JS with embedded config
-  const cartModalScript = `
     (function() {
       /* GWP Script: load start (debug disabled) */
       
@@ -813,7 +740,7 @@ export const loader = async ({ request }) => {
       }
       
       // Styles for the modal
-      const modalStyles = \`
+      const modalStyles = `
         .gwp-modal-overlay {
           position: fixed;
           top: 0;
@@ -838,7 +765,7 @@ export const loader = async ({ request }) => {
         .gwp-modal {
           background: white;
           border-radius: 12px;
-          max-width: 500px;
+          max-width: 700px;
           width: 90%;
           max-height: 80vh;
           overflow-y: auto;
@@ -906,12 +833,19 @@ export const loader = async ({ request }) => {
           font-weight: 600;
           margin-bottom: 16px;
           color: #333;
+          text-align: center;
         }
         
         .gwp-products-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
+        }
+
+        .gwp-selected-grid {
+          justify-items: center;
+          grid-template-columns: repeat(auto-fit, 120px);
+          justify-content: center;
         }
         
         /* Mobile responsive - 3 columns on mobile */
@@ -924,20 +858,21 @@ export const loader = async ({ request }) => {
             grid-template-columns: repeat(3, 1fr);
             gap: 5px;
           }
-          
+
           .gwp-product-image {
             width: 60px;
             height: 60px;
           }
-          
+
           .gwp-product-title {
             font-size: 12px;
           }
-          
+
           .gwp-product-price,
           .gwp-product-free {
             font-size: 10px;
           }
+
         }
         
         .gwp-product-card {
@@ -991,12 +926,52 @@ export const loader = async ({ request }) => {
           font-weight: 600;
           margin: 2px 0 0;
         }
-        
+
+        .gwp-product-type {
+          font-size: 10px;
+          color: #888;
+          margin: 1px 0 0;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+
+        .gwp-pagination {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          padding: 8px 0 4px;
+        }
+
+        .gwp-page-btn {
+          background: none;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          padding: 4px 10px;
+          cursor: pointer;
+          font-size: 14px;
+          color: #333;
+        }
+
+        .gwp-page-btn:disabled {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
+
+        .gwp-page-info {
+          font-size: 12px;
+          color: #666;
+        }
+
         .gwp-modal-footer {
           padding: 16px 24px 24px;
           border-top: 1px solid #e5e5e5;
           display: flex;
           gap: 12px;
+          position: sticky;
+          bottom: 0;
+          background: white;
+          z-index: 1;
         }
         
         .gwp-button {
@@ -1047,15 +1022,7 @@ export const loader = async ({ request }) => {
           color: #dc3545;
         }
         
-        .gwp-fine-print {
-          text-align: center;
-          font-size: 11px;
-          color: #666;
-          padding: 8px 16px;
-          border-top: 1px solid #e5e5e5;
-          background-color: #f9f9f9;
-        }
-      \`;
+      `;
       
       // Add styles to page
       function addStyles() {
@@ -1162,7 +1129,7 @@ export const loader = async ({ request }) => {
       }
       
       // Server-embedded config (may be empty if admin fetch failed)
-      const SERVER_EMBEDDED_CONFIG = ${configJson};
+      const SERVER_EMBEDDED_CONFIG = {};
       
       // PRIORITY: Check for config set by the Liquid embed (window.__GWP_EMBEDDED_CONFIG__)
       // This is the most reliable source because it comes directly from Shopify metafields via Liquid
@@ -1204,7 +1171,7 @@ export const loader = async ({ request }) => {
           debugLog('Fetching products from collection:', collectionHandle);
           // Use the Shopify store domain for collection API calls
           const shopDomain = window.location.hostname;
-          const collectionUrl = \`https://\${shopDomain}/collections/\${collectionHandle}/products.json?limit=10\`;
+          const collectionUrl = `https://${shopDomain}/collections/${collectionHandle}/products.json?limit=250`;
           debugLog('Collection URL:', collectionUrl);
           
           const response = await fetch(collectionUrl);
@@ -1272,7 +1239,7 @@ export const loader = async ({ request }) => {
               let displayTitle = product.title;
               if (variant.title && variant.title !== 'Default Title' && variant.title !== product.title) {
                 // If variant has a meaningful title, append it
-                displayTitle = \`\${product.title} - \${variant.title}\`;
+                displayTitle = `${product.title} - ${variant.title}`;
               }
               
               allVariants.push({
@@ -1281,6 +1248,7 @@ export const loader = async ({ request }) => {
                 title: displayTitle,
                 productTitle: product.title,
                 variantTitle: variant.title,
+                productType: product.product_type || '',
                 image: variantImage,
                 price: (variant.price * 100).toString() // Convert to cents
               });
@@ -1293,12 +1261,9 @@ export const loader = async ({ request }) => {
             });
           });
           
-          // Limit to reasonable number of options (12 variants max)
-          const limitedVariants = allVariants.slice(0, 12);
-          
-          debugLog('Found', allVariants.length, 'total available variants, showing', limitedVariants.length, 'in collection', collectionHandle);
-          debugLog('Final variants array:', limitedVariants.map(v => ({ title: v.title, variantId: v.variantId })));
-          return limitedVariants;
+          debugLog('Found', allVariants.length, 'total available variants in collection', collectionHandle);
+          debugLog('Final variants array:', allVariants.map(v => ({ title: v.title, variantId: v.variantId })));
+          return allVariants;
         } catch (error) {
           errorLog('Error fetching collection products:', error);
           return [];
@@ -1309,13 +1274,62 @@ export const loader = async ({ request }) => {
       let selectedGifts = [];
       
       // Create global functions with simpler names to avoid truncation
-      const closeModalFunctionName = \`closeGWPModal_\${Date.now()}\`;
-      const selectProductFunctionName = \`selectGiftProduct_\${Date.now()}\`;
-      const addToCartFunctionName = \`addSelectedGiftsToCart_\${Date.now()}\`;
-      const dismissModalFunctionName = \`dismissGWPModal_\${Date.now()}\`;
-      const removeGiftFunctionName = \`removeGiftFromCart_\${Date.now()}\`;
-      const refreshModalFunctionName = \`refreshModalContent_\${Date.now()}\`;
-      
+      const closeModalFunctionName = `closeGWPModal_${Date.now()}`;
+      const selectProductFunctionName = `selectGiftProduct_${Date.now()}`;
+      const addToCartFunctionName = `addSelectedGiftsToCart_${Date.now()}`;
+      const dismissModalFunctionName = `dismissGWPModal_${Date.now()}`;
+      const removeGiftFunctionName = `removeGiftFromCart_${Date.now()}`;
+      const refreshModalFunctionName = `refreshModalContent_${Date.now()}`;
+      const paginateGWPFunctionName = `paginateGWP_${Date.now()}`;
+
+      // Pagination state
+      const gwpTierAllProducts = {};
+      const gwpTierCurrentPage = {};
+      const GWP_PAGE_SIZE = 12;
+
+      // Render a paginated products grid for a tier
+      function renderProductsGrid(allProducts, tierId, page) {
+        const totalPages = Math.ceil(allProducts.length / GWP_PAGE_SIZE);
+        const pageProducts = allProducts.slice(page * GWP_PAGE_SIZE, (page + 1) * GWP_PAGE_SIZE);
+        const cards = pageProducts.map(product => `
+          <div class="gwp-product-card" onclick="${selectProductFunctionName}('${product.variantId}', '${tierId}', this)">
+            <img src="${product.image}" alt="${product.title}" class="gwp-product-image" />
+            <h5 class="gwp-product-title">${product.title}</h5>
+            ${product.productType ? `<p class="gwp-product-type">${product.productType}</p>` : ''}
+            <p class="gwp-product-price">$${(parseInt(product.price) / 100).toFixed(2)}</p>
+            <p class="gwp-product-free">FREE</p>
+          </div>
+        `).join('');
+        const pagination = totalPages > 1 ? `
+          <div class="gwp-pagination">
+            <button class="gwp-page-btn" onclick="${paginateGWPFunctionName}('${tierId}', ${page - 1})" ${page === 0 ? 'disabled' : ''}>&#8592; Prev</button>
+            <span class="gwp-page-info">${page + 1} of ${totalPages}</span>
+            <button class="gwp-page-btn" onclick="${paginateGWPFunctionName}('${tierId}', ${page + 1})" ${page >= totalPages - 1 ? 'disabled' : ''}>Next &#8594;</button>
+          </div>
+        ` : '';
+        return `<div class="gwp-products-grid">${cards}</div>${pagination}`;
+      }
+
+      // Store products for a tier and render first page
+      function initAndRenderProductsGrid(products, tierId) {
+        gwpTierAllProducts[tierId] = products;
+        gwpTierCurrentPage[tierId] = 0;
+        return renderProductsGrid(products, tierId, 0);
+      }
+
+      // Pagination handler
+      window[paginateGWPFunctionName] = function(tierId, newPage) {
+        const allProducts = gwpTierAllProducts[tierId] || [];
+        const totalPages = Math.ceil(allProducts.length / GWP_PAGE_SIZE);
+        if (newPage < 0 || newPage >= totalPages) return;
+        gwpTierCurrentPage[tierId] = newPage;
+        const tierSection = document.querySelector(`.gwp-tier-section[data-tier-id="${tierId}"]`);
+        if (!tierSection) return;
+        const availableContainer = tierSection.querySelector('.gwp-tier-available-products');
+        if (!availableContainer) return;
+        availableContainer.innerHTML = renderProductsGrid(allProducts, tierId, newPage);
+      };
+
       // Debug function to reset modal state
       window.resetGWPModal = function() {
         sessionStorage.removeItem('gwp_modal_dismissed');
@@ -1424,11 +1438,11 @@ export const loader = async ({ request }) => {
       // Update add to cart button
       function updateAddToCartButton() {
         try {
-          const button = document.getElementById(\`gwp-add-to-cart-btn-\${GWP_NAMESPACE}\`);
+          const button = document.getElementById(`gwp-add-to-cart-btn-${GWP_NAMESPACE}`);
           if (button) {
         if (selectedGifts.length > 0) {
           button.disabled = false;
-          button.textContent = \`Add to cart (\${selectedGifts.length})\`;
+          button.textContent = `Add to cart (${selectedGifts.length})`;
         } else {
           button.disabled = true;
           button.textContent = 'Add to cart (0)';
@@ -1443,7 +1457,7 @@ export const loader = async ({ request }) => {
       window[addToCartFunctionName] = async function() {
         if (selectedGifts.length === 0) return;
         
-        const button = document.getElementById(\`gwp-add-to-cart-btn-\${GWP_NAMESPACE}\`);
+        const button = document.getElementById(`gwp-add-to-cart-btn-${GWP_NAMESPACE}`);
         if (button) {
         button.disabled = true;
         button.textContent = 'Adding...';
@@ -1913,7 +1927,7 @@ export const loader = async ({ request }) => {
           
           // Show success message
           if (window.Shopify && window.Shopify.theme && window.Shopify.theme.showQuickShopSuccess) {
-            window.Shopify.theme.showQuickShopSuccess(\`Added \${selectedGifts.length} free gift\${selectedGifts.length > 1 ? 's' : ''} to cart!\`);
+            window.Shopify.theme.showQuickShopSuccess(`Added ${selectedGifts.length} free gift${selectedGifts.length > 1 ? 's' : ''} to cart!`);
           }
           
           debugLog('=== FINISHED ADDING ALL GIFTS ===');
@@ -1938,7 +1952,7 @@ export const loader = async ({ request }) => {
           
           if (button) {
           button.disabled = false;
-          button.textContent = \`Add to cart (\${selectedGifts.length})\`;
+          button.textContent = `Add to cart (${selectedGifts.length})`;
           }
         }
       };
@@ -2209,20 +2223,20 @@ export const loader = async ({ request }) => {
           addStyles();
           
           // Create modal with loading state
-          document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+          document.body.insertAdjacentHTML('beforeend', `
+            <div class="gwp-modal-overlay active" id="${GWP_MODAL_ID}">
               <div class="gwp-modal">
                 <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
-                  <h2 class="gwp-modal-title">\${specificTier.name.toUpperCase()} GIFTS 🎁</h2>
-                  <p class="gwp-modal-subtitle">Select your \${specificTier.name} gift. Cannot Be Combined With Other Discounts*</p>
+                  <button class="gwp-modal-close" onclick="${closeModalFunctionName}()">&times;</button>
+                  <h2 class="gwp-modal-title">${specificTier.name.toUpperCase()} GIFTS 🎁</h2>
+                  <p class="gwp-modal-subtitle">Select your ${specificTier.name} gift. Cannot Be Combined With Other Discounts*</p>
                 </div>
                 <div class="gwp-modal-body">
-                  <div class="gwp-loading">Loading your \${specificTier.name} gifts...</div>
+                  <div class="gwp-loading">Loading your ${specificTier.name} gifts...</div>
                 </div>
               </div>
             </div>
-          \`);
+          `);
           
           // Add interaction tracking to prevent refreshes during user interaction
           const modalElement = document.getElementById(GWP_MODAL_ID);
@@ -2284,27 +2298,27 @@ export const loader = async ({ request }) => {
             const isMaxedOut = remainingSelections <= 0;
             
             // Update modal with products for this specific tier only
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
             if (modalBody) {
               if (tierProducts.length === 0) {
-                modalBody.innerHTML = \`
+                modalBody.innerHTML = `
                   <div class="gwp-error">
-                    <h3>No \${specificTier.name} gifts available</h3>
-                    <p>We're sorry, but there are no \${specificTier.name} gift products available at this time. Please contact support if you believe this is an error.</p>
-                    <p><strong>Debug info:</strong> Collection handle: \${specificTier.collectionHandle || 'none'}</p>
+                    <h3>No ${specificTier.name} gifts available</h3>
+                    <p>We're sorry, but there are no ${specificTier.name} gift products available at this time. Please contact support if you believe this is an error.</p>
+                    <p><strong>Debug info:</strong> Collection handle: ${specificTier.collectionHandle || 'none'}</p>
                   </div>
-                \`;
+                `;
               } else {
-                modalBody.innerHTML = \`
-                  <div class="gwp-tier-section">
+                modalBody.innerHTML = `
+                  <div class="gwp-tier-section" data-tier-id="${specificTier.id}">
                     <h3 class="gwp-tier-title">
-                      \${specificTier.name} - \${specificTier.description}
-                      \${isMaxedOut ? ' ✅ ' : ' (' + remainingSelections + ' remaining)'}
+                      ${specificTier.name} - ${specificTier.description}
+                      ${isMaxedOut ? ' ✅ ' : ' (' + remainingSelections + ' remaining)'}
                     </h3>
-                    \${tierGiftsInCart.length > 0 ? \`
+                    ${tierGiftsInCart.length > 0 ? `
                       <div style="margin-bottom: 16px;">
-                        <div class="gwp-products-grid">
-                          \${tierGiftsInCart.map(gift => {
+                        <div class="gwp-products-grid gwp-selected-grid">
+                          ${tierGiftsInCart.map(gift => {
                             // Fix image URL - handle different image property formats
                             let imageUrl = null;
                             
@@ -2327,60 +2341,51 @@ export const loader = async ({ request }) => {
                             
                             // Final fallback
                             if (!imageUrl) {
-                              imageUrl = \`https://via.placeholder.com/80x80/cccccc/666666?text=\${encodeURIComponent(gift.title || 'Gift')}\`;
+                              imageUrl = `https://via.placeholder.com/80x80/cccccc/666666?text=${encodeURIComponent(gift.title || 'Gift')}`;
                             }
                             
-                            return \`
+                            return `
                               <div class="gwp-product-card selected" style="position: relative; border-color: #28a745; background-color: #f8fff8;">
-                                <button onclick="\${removeGiftFunctionName}('\${gift.variant_id}', '\${specificTier.id}')" 
+                                <button onclick="${removeGiftFunctionName}('${gift.variant_id}', '${specificTier.id}')" 
                                         style="position: absolute; top: 4px; right: 4px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10;"
                                         title="Remove this gift">×</button>
-                                <img src="\${imageUrl}" alt="\${gift.title}" class="gwp-product-image" />
-                                <h5 class="gwp-product-title">\${gift.title}</h5>
+                                <img src="${imageUrl}" alt="${gift.title}" class="gwp-product-image" />
+                                <h5 class="gwp-product-title">${gift.title}</h5>
                                 <p class="gwp-product-free" style="color: #28a745;">SELECTED ✓</p>
                               </div>
-                            \`;
+                            `;
                           }).join('')}
                         </div>
                       </div>
-                    \` : ''}
-                    \${tierProducts.length > 0 && !isMaxedOut ? \`
-                      <div>
-                        <strong style="display: block; margin-bottom: 8px; color: #0161FE;">Available \${specificTier.name} Gifts:</strong>
-                        <div class="gwp-products-grid">
-                          \${tierProducts.map(product => \`
-                            <div class="gwp-product-card" onclick="\${selectProductFunctionName}('\${product.variantId}', '\${specificTier.id}', this)">
-                              <img src="\${product.image}" alt="\${product.title}" class="gwp-product-image" />
-                              <h5 class="gwp-product-title">\${product.title}</h5>
-                              <p class="gwp-product-price">$\${(parseInt(product.price) / 100).toFixed(2)}</p>
-                              <p class="gwp-product-free">FREE</p>
-                            </div>
-                          \`).join('')}
-                        </div>
+                    ` : ''}
+                    ${tierProducts.length > 0 && !isMaxedOut ? `
+                      <div class="gwp-tier-available-products">
+                        <strong style="display: block; margin-bottom: 8px; color: #0161FE;">Available ${specificTier.name} Gifts:</strong>
+                        ${initAndRenderProductsGrid(tierProducts, specificTier.id)}
                       </div>
-                    \` : tierGiftsInCart.length === 0 && tierProducts.length === 0 ? \`
-                      
-                    \` : ''}
+                    ` : tierGiftsInCart.length === 0 && tierProducts.length === 0 ? `
+
+                    ` : ''}
                   </div>
-                \`;
+                `;
               }
               
               // Add footer
-              const modal = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal\`);
+              const modal = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal`);
               if (modal) {
-                modal.insertAdjacentHTML('beforeend', \`
+                modal.insertAdjacentHTML('beforeend', `
                   <div class="gwp-modal-footer">
-                    <button class="gwp-button gwp-button-secondary" onclick="\${dismissModalFunctionName}()">Continue shopping</button>
-                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-\${GWP_NAMESPACE}" onclick="\${addToCartFunctionName}()" disabled>Add to cart (0)</button>
+                    <button class="gwp-button gwp-button-secondary" onclick="${dismissModalFunctionName}()">Continue shopping</button>
+                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-${GWP_NAMESPACE}" onclick="${addToCartFunctionName}()" disabled>Add to cart (0)</button>
                   </div>
-                \`);
+                `);
               }
               
               debugLog('Specific tier modal content updated successfully');
             }
           } catch (error) {
             errorLog('Error loading gift products for specific tier:', error);
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
             if (modalBody) {
               modalBody.innerHTML = '<div class="gwp-error">Error loading gifts. Please try again.</div>';
             }
@@ -3291,11 +3296,11 @@ export const loader = async ({ request }) => {
         addStyles();
         
         // Create modal with loading state
-        document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="gwp-modal-overlay active" id="${GWP_MODAL_ID}">
             <div class="gwp-modal">
               <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
+                  <button class="gwp-modal-close" onclick="${closeModalFunctionName}()">&times;</button>
                 <h2 class="gwp-modal-title">CONGRATULATIONS 🎉</h2>
                 <p class="gwp-modal-subtitle">You Earned A Free Gift! Cannot Be Combined With Other Discounts*</p>
               </div>
@@ -3304,7 +3309,7 @@ export const loader = async ({ request }) => {
               </div>
             </div>
           </div>
-        \`);
+        `);
           
           // Add interaction tracking to prevent refreshes during user interaction
           const modalElement = document.getElementById(GWP_MODAL_ID);
@@ -3354,59 +3359,46 @@ export const loader = async ({ request }) => {
             debugLog('Products fetched for tiers:', tierProducts);
           
           // Update modal with products
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
           if (modalBody) {
               const hasAnyProducts = tierProducts.some(products => products.length > 0);
               
               if (!hasAnyProducts) {
-                modalBody.innerHTML = \`
+                modalBody.innerHTML = `
                   <div class="gwp-error">
                     <h3>No gifts available</h3>
                     <p>We're sorry, but there are no gift products available at this time. Please contact support if you believe this is an error.</p>
-                    <p><strong>Debug info:</strong> Collection handles: \${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
+                    <p><strong>Debug info:</strong> Collection handles: ${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
                   </div>
-                \`;
+                `;
               } else {
-            modalBody.innerHTML = eligibleTiers.map((tier, tierIndex) => \`
-              <div class="gwp-tier-section">
-                <h3 class="gwp-tier-title">\${tier.name} - \${tier.description}</h3>
-                    \${(tierProducts[tierIndex] || []).length > 0 ? \`
-                <div class="gwp-products-grid">
-                  \${(tierProducts[tierIndex] || []).map(product => \`
-                          <div class="gwp-product-card" onclick="\${selectProductFunctionName}('\${product.variantId}', '\${tier.id}', this)">
-                      <img src="\${product.image}" alt="\${product.title}" class="gwp-product-image" />
-                      <h5 class="gwp-product-title">\${product.title}</h5>
-                      <p class="gwp-product-price">$\${(parseInt(product.price) / 100).toFixed(2)}</p>
-                      <p class="gwp-product-free">FREE</p>
-                    </div>
-                  \`).join('')}
-                </div>
-                    \` : \`
-                      
-                    \`}
+            modalBody.innerHTML = eligibleTiers.map((tier, tierIndex) => `
+              <div class="gwp-tier-section" data-tier-id="${tier.id}">
+                <h3 class="gwp-tier-title">${tier.name} - ${tier.description}</h3>
+                ${(tierProducts[tierIndex] || []).length > 0 ? `
+                  <div class="gwp-tier-available-products">
+                    ${initAndRenderProductsGrid(tierProducts[tierIndex] || [], tier.id)}
+                  </div>
+                ` : ''}
               </div>
-            \`).join('');
+            `).join('');
               }
             
             // Add footer
-              const modal = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal\`);
+              const modal = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal`);
               if (modal) {
-            modal.insertAdjacentHTML('beforeend', \`
+            modal.insertAdjacentHTML('beforeend', `
               <div class="gwp-modal-footer">
-                    <button class="gwp-button gwp-button-secondary" onclick="\${dismissModalFunctionName}()">Continue shopping</button>
-                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-\${GWP_NAMESPACE}" onclick="\${addToCartFunctionName}()" disabled>Add to cart (0)</button>
-              </div>
-              <div class="gwp-fine-print">
-                *Free gifts cannot be combined with other discount codes or promotional offers
-              </div>
-            \`);
+                    <button class="gwp-button gwp-button-secondary" onclick="${dismissModalFunctionName}()">Continue shopping</button>
+                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-${GWP_NAMESPACE}" onclick="${addToCartFunctionName}()" disabled>Add to cart (0)</button>
+              </div>            `);
               }
               
               debugLog('Modal content updated successfully');
           }
         } catch (error) {
             errorLog('Error loading gift products:', error);
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
           if (modalBody) {
             modalBody.innerHTML = '<div class="gwp-error">Error loading gifts. Please try again.</div>';
           }
@@ -3446,11 +3438,11 @@ export const loader = async ({ request }) => {
           addStyles();
           
           // Create modal with loading state
-          document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+          document.body.insertAdjacentHTML('beforeend', `
+            <div class="gwp-modal-overlay active" id="${GWP_MODAL_ID}">
               <div class="gwp-modal">
                 <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
+                  <button class="gwp-modal-close" onclick="${closeModalFunctionName}()">&times;</button>
                   <h2 class="gwp-modal-title">YOUR FREE GIFTS 🎁</h2>
                   <p class="gwp-modal-subtitle">Manage your gift selections. Cannot Be Combined With Other Discounts*</p>
                 </div>
@@ -3459,7 +3451,7 @@ export const loader = async ({ request }) => {
                 </div>
               </div>
             </div>
-          \`);
+          `);
           
           // Add interaction tracking to prevent refreshes during user interaction
           const modalElement = document.getElementById(GWP_MODAL_ID);
@@ -3536,33 +3528,33 @@ export const loader = async ({ request }) => {
             });
             
             // Update modal with products
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
             if (modalBody) {
               const hasAnyProducts = tierProducts.some(products => products.length > 0);
               
               if (!hasAnyProducts) {
-                modalBody.innerHTML = \`
+                modalBody.innerHTML = `
                   <div class="gwp-error">
                     <h3>No gifts available</h3>
                     <p>We're sorry, but there are no gift products available at this time. Please contact support if you believe this is an error.</p>
-                    <p><strong>Debug info:</strong> Collection handles: \${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
+                    <p><strong>Debug info:</strong> Collection handles: ${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
                   </div>
-                \`;
+                `;
               } else {
                 modalBody.innerHTML = tierGiftsStatus.map((tierStatus, tierIndex) => {
                   const tier = tierStatus.tier;
                   const products = tierProducts[tierIndex] || [];
                   
-                  return \`
-                    <div class="gwp-tier-section">
+                  return `
+                    <div class="gwp-tier-section" data-tier-id="${tier.id}">
                       <h3 class="gwp-tier-title">
-                        \${tier.name} - \${tier.description}
-                        \${tierStatus.isMaxedOut ? ' ✅ ' : ' (' + tierStatus.remainingSelections + ' remaining)'}
+                        ${tier.name} - ${tier.description}
+                        ${tierStatus.isMaxedOut ? ' ✅ ' : ' (' + tierStatus.remainingSelections + ' remaining)'}
                       </h3>
-                      \${tierStatus.giftsInCart.length > 0 ? \`
+                      ${tierStatus.giftsInCart.length > 0 ? `
                         <div style="margin-bottom: 16px;">
-                          <div class="gwp-products-grid">
-                            \${tierStatus.giftsInCart.map(gift => {
+                          <div class="gwp-products-grid gwp-selected-grid">
+                            ${tierStatus.giftsInCart.map(gift => {
                               // Fix image URL - handle different image property formats
                               let imageUrl = null;
                               
@@ -3586,66 +3578,54 @@ export const loader = async ({ request }) => {
                               
                               // Final fallback
                               if (!imageUrl) {
-                                imageUrl = \`https://via.placeholder.com/80x80/cccccc/666666?text=\${encodeURIComponent(gift.title || 'Gift')}\`;
+                                imageUrl = `https://via.placeholder.com/80x80/cccccc/666666?text=${encodeURIComponent(gift.title || 'Gift')}`;
                               }
                               
-                              return \`
+                              return `
                                 <div class="gwp-product-card selected" style="position: relative; border-color: #28a745; background-color: #f8fff8;">
-                                  <button onclick="\${removeGiftFunctionName}('\${gift.variant_id}', '\${tier.id}')" 
+                                  <button onclick="${removeGiftFunctionName}('${gift.variant_id}', '${tier.id}')" 
                                           style="position: absolute; top: 4px; right: 4px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10;"
                                           title="Remove this gift">×</button>
-                                  <img src="\${imageUrl}" alt="\${gift.title}" class="gwp-product-image" />
-                                  <h5 class="gwp-product-title">\${gift.title}</h5>
+                                  <img src="${imageUrl}" alt="${gift.title}" class="gwp-product-image" />
+                                  <h5 class="gwp-product-title">${gift.title}</h5>
                                   <p class="gwp-product-free" style="color: #28a745;">SELECTED ✓</p>
                                 </div>
-                              \`;
+                              `;
                             }).join('')}
                           </div>
                         </div>
-                      \` : \`
+                      ` : `
                         
-                      \`}
-                      \${products.length > 0 && !tierStatus.isMaxedOut ? \`
-                        <div>
+                      `}
+                      ${products.length > 0 && !tierStatus.isMaxedOut ? `
+                        <div class="gwp-tier-available-products">
                           <strong style="display: block; margin-bottom: 8px; color: #0161FE;">Available Gifts:</strong>
-                          <div class="gwp-products-grid">
-                            \${products.map(product => \`
-                              <div class="gwp-product-card" onclick="\${selectProductFunctionName}('\${product.variantId}', '\${tier.id}', this)">
-                                <img src="\${product.image}" alt="\${product.title}" class="gwp-product-image" />
-                                <h5 class="gwp-product-title">\${product.title}</h5>
-                                <p class="gwp-product-price">$\${(parseInt(product.price) / 100).toFixed(2)}</p>
-                                <p class="gwp-product-free">FREE</p>
-                              </div>
-                            \`).join('')}
-                          </div>
+                          ${initAndRenderProductsGrid(products, tier.id)}
                         </div>
-                      \` : tierStatus.giftsInCart.length === 0 && products.length === 0 ? \`
-                        
-                      \` : ''}
+                      ` : tierStatus.giftsInCart.length === 0 && products.length === 0 ? `
+
+                      ` : ''}
                     </div>
-                  \`;
+                  `;
                 }).join('');
               }
               
               // Add footer
-              const modal = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal\`);
+              const modal = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal`);
               if (modal) {
-                modal.insertAdjacentHTML('beforeend', \`
+                modal.insertAdjacentHTML('beforeend', `
                   <div class="gwp-modal-footer">
-                    <button class="gwp-button gwp-button-secondary" onclick="\${dismissModalFunctionName}()">Continue shopping</button>
-                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-\${GWP_NAMESPACE}" onclick="\${addToCartFunctionName}()" disabled>Add to cart (0)</button>
+                    <button class="gwp-button gwp-button-secondary" onclick="${dismissModalFunctionName}()">Continue shopping</button>
+                    <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-${GWP_NAMESPACE}" onclick="${addToCartFunctionName}()" disabled>Add to cart (0)</button>
                   </div>
-                  <div class="gwp-fine-print">
-                    *Free gifts cannot be combined with other discount codes or promotional offers
-                  </div>
-                \`);
+                `);
               }
               
               debugLog('Progress bar modal content updated successfully');
             }
           } catch (error) {
             errorLog('Error loading gift products for progress bar:', error);
-            const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+            const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
             if (modalBody) {
               modalBody.innerHTML = '<div class="gwp-error">Error loading gifts. Please try again.</div>';
             }
@@ -3776,7 +3756,7 @@ export const loader = async ({ request }) => {
       }
       
       // Cleanup function with unique name
-      window[\`cleanupGWP_\${GWP_NAMESPACE}\`] = function() {
+      window[`cleanupGWP_${GWP_NAMESPACE}`] = function() {
         try {
           if (cartMonitorInterval) {
             clearInterval(cartMonitorInterval);
@@ -3820,7 +3800,7 @@ export const loader = async ({ request }) => {
           delete window[dismissModalFunctionName];
           delete window[removeGiftFunctionName];
           delete window[refreshModalFunctionName];
-          delete window[\`cleanupGWP_\${GWP_NAMESPACE}\`];
+          delete window[`cleanupGWP_${GWP_NAMESPACE}`];
         } catch (error) {
           debugLog('Error during cleanup:', error);
         }
@@ -4105,11 +4085,11 @@ export const loader = async ({ request }) => {
           await fetchCartData();
           
           // Check if we're in progress bar modal mode or regular modal mode
-          const modalTitle = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-title\`);
+          const modalTitle = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-title`);
           const isProgressBarModal = modalTitle && modalTitle.textContent.includes('YOUR FREE GIFTS');
           
           // Instead of closing and reopening, just update the content
-          const modalBody = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-body\`);
+          const modalBody = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-body`);
           if (!modalBody) {
             debugLog('Modal body not found, modal may have been closed');
             return;
@@ -4171,16 +4151,16 @@ export const loader = async ({ request }) => {
               const tier = tierStatus.tier;
               const products = tierProducts[tierIndex] || [];
               
-              return \`
-                <div class="gwp-tier-section">
+              return `
+                <div class="gwp-tier-section" data-tier-id="${tier.id}">
                   <h3 class="gwp-tier-title">
-                    \${tier.name} - \${tier.description}
-                    \${tierStatus.isMaxedOut ? ' ✅ ' : ' (' + tierStatus.remainingSelections + ' remaining)'}
+                    ${tier.name} - ${tier.description}
+                    ${tierStatus.isMaxedOut ? ' ✅ ' : ' (' + tierStatus.remainingSelections + ' remaining)'}
                   </h3>
-                  \${tierStatus.giftsInCart.length > 0 ? \`
+                  ${tierStatus.giftsInCart.length > 0 ? `
                     <div style="margin-bottom: 16px;">
                       <div class="gwp-products-grid">
-                        \${tierStatus.giftsInCart.map(gift => {
+                        ${tierStatus.giftsInCart.map(gift => {
                           // Fix image URL - handle different image property formats
                           let imageUrl = null;
                           
@@ -4204,42 +4184,33 @@ export const loader = async ({ request }) => {
                           
                           // Final fallback
                           if (!imageUrl) {
-                            imageUrl = \`https://via.placeholder.com/80x80/cccccc/666666?text=\${encodeURIComponent(gift.title || 'Gift')}\`;
+                            imageUrl = `https://via.placeholder.com/80x80/cccccc/666666?text=${encodeURIComponent(gift.title || 'Gift')}`;
                           }
                           
-                          return \`
+                          return `
                             <div class="gwp-product-card selected" style="position: relative; border-color: #28a745; background-color: #f8fff8;">
-                              <button onclick="\${removeGiftFunctionName}('\${gift.variant_id}', '\${tier.id}')" 
+                              <button onclick="${removeGiftFunctionName}('${gift.variant_id}', '${tier.id}')" 
                                       style="position: absolute; top: 4px; right: 4px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10;"
                                       title="Remove this gift">×</button>
-                              <img src="\${imageUrl}" alt="\${gift.title}" class="gwp-product-image" />
-                              <h5 class="gwp-product-title">\${gift.title}</h5>
+                              <img src="${imageUrl}" alt="${gift.title}" class="gwp-product-image" />
+                              <h5 class="gwp-product-title">${gift.title}</h5>
                               <p class="gwp-product-free" style="color: #28a745;">SELECTED ✓</p>
                             </div>
-                          \`;
+                          `;
                         }).join('')}
                       </div>
                     </div>
-                  \` : ''}
-                  \${products.length > 0 && !tierStatus.isMaxedOut ? \`
-                    <div>
+                  ` : ''}
+                  ${products.length > 0 && !tierStatus.isMaxedOut ? `
+                    <div class="gwp-tier-available-products">
                       <strong style="display: block; margin-bottom: 8px; color: #0161FE;">Available Gifts:</strong>
-                      <div class="gwp-products-grid">
-                        \${products.map(product => \`
-                          <div class="gwp-product-card" onclick="\${selectProductFunctionName}('\${product.variantId}', '\${tier.id}', this)">
-                            <img src="\${product.image}" alt="\${product.title}" class="gwp-product-image" />
-                            <h5 class="gwp-product-title">\${product.title}</h5>
-                            <p class="gwp-product-price">$\${(parseInt(product.price) / 100).toFixed(2)}</p>
-                            <p class="gwp-product-free">FREE</p>
-                          </div>
-                        \`).join('')}
-                      </div>
+                      ${initAndRenderProductsGrid(products, tier.id)}
                     </div>
-                  \` : tierStatus.giftsInCart.length === 0 && products.length === 0 ? \`
-                    
-                  \` : ''}
+                  ` : tierStatus.giftsInCart.length === 0 && products.length === 0 ? `
+
+                  ` : ''}
                 </div>
-              \`;
+              `;
             }).join('');
             
           } else {
@@ -4266,50 +4237,38 @@ export const loader = async ({ request }) => {
             const hasAnyProducts = tierProducts.some(products => products.length > 0);
             
             if (!hasAnyProducts) {
-              modalBody.innerHTML = \`
+              modalBody.innerHTML = `
                 <div class="gwp-error">
                   <h3>No gifts available</h3>
                   <p>We're sorry, but there are no gift products available at this time. Please contact support if you believe this is an error.</p>
-                  <p><strong>Debug info:</strong> Collection handles: \${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
+                  <p><strong>Debug info:</strong> Collection handles: ${eligibleTiers.map(t => t.collectionHandle || 'none').join(', ')}</p>
                 </div>
-              \`;
+              `;
             } else {
-              modalBody.innerHTML = eligibleTiers.map((tier, tierIndex) => \`
-                <div class="gwp-tier-section">
-                  <h3 class="gwp-tier-title">\${tier.name} - \${tier.description}</h3>
-                  \${(tierProducts[tierIndex] || []).length > 0 ? \`
-                    <div class="gwp-products-grid">
-                      \${(tierProducts[tierIndex] || []).map(product => \`
-                        <div class="gwp-product-card" onclick="\${selectProductFunctionName}('\${product.variantId}', '\${tier.id}', this)">
-                          <img src="\${product.image}" alt="\${product.title}" class="gwp-product-image" />
-                          <h5 class="gwp-product-title">\${product.title}</h5>
-                          <p class="gwp-product-price">$\${(parseInt(product.price) / 100).toFixed(2)}</p>
-                          <p class="gwp-product-free">FREE</p>
-                        </div>
-                      \`).join('')}
+              modalBody.innerHTML = eligibleTiers.map((tier, tierIndex) => `
+                <div class="gwp-tier-section" data-tier-id="${tier.id}">
+                  <h3 class="gwp-tier-title">${tier.name} - ${tier.description}</h3>
+                  ${(tierProducts[tierIndex] || []).length > 0 ? `
+                    <div class="gwp-tier-available-products">
+                      ${initAndRenderProductsGrid(tierProducts[tierIndex] || [], tier.id)}
                     </div>
-                  \` : \`
-                    
-                  \`}
+                  ` : ''}
                 </div>
-              \`).join('');
+              `).join('');
             }
           }
           
           // Ensure footer exists and is not duplicated
-          let existingFooter = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal-footer\`);
+          let existingFooter = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal-footer`);
           if (!existingFooter) {
-            const modal = document.querySelector(\`#\${GWP_MODAL_ID} .gwp-modal\`);
+            const modal = document.querySelector(`#${GWP_MODAL_ID} .gwp-modal`);
             if (modal) {
-              modal.insertAdjacentHTML('beforeend', \`
+              modal.insertAdjacentHTML('beforeend', `
                 <div class="gwp-modal-footer">
-                  <button class="gwp-button gwp-button-secondary" onclick="\${dismissModalFunctionName}()">Continue shopping</button>
-                  <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-\${GWP_NAMESPACE}" onclick="\${addToCartFunctionName}()" disabled>Add to cart (0)</button>
+                  <button class="gwp-button gwp-button-secondary" onclick="${dismissModalFunctionName}()">Continue shopping</button>
+                  <button class="gwp-button gwp-button-primary" id="gwp-add-to-cart-btn-${GWP_NAMESPACE}" onclick="${addToCartFunctionName}()" disabled>Add to cart (0)</button>
                 </div>
-                <div class="gwp-fine-print">
-                  *Free gifts cannot be combined with other discount codes or promotional offers
-                </div>
-              \`);
+              `);
             }
           }
           
@@ -4332,7 +4291,7 @@ export const loader = async ({ request }) => {
       }
       
       // Cleanup on page unload
-      window.addEventListener('beforeunload', window[\`cleanupGWP_\${GWP_NAMESPACE}\`]);
+      window.addEventListener('beforeunload', window[`cleanupGWP_${GWP_NAMESPACE}`]);
       
       debugLog('Cart modal script setup complete');
       
@@ -4374,7 +4333,7 @@ export const loader = async ({ request }) => {
                 key.includes('gwp') || key.includes('gift')
               );
               if (hasGWPProps) {
-                console.log(\`Item \${index}:\`, {
+                console.log(`Item ${index}:`, {
                   title: item.title,
                   variant_id: item.variant_id,
                   properties: item.properties
@@ -4387,7 +4346,7 @@ export const loader = async ({ request }) => {
         if (gwpConfig) {
           console.log('Tier Configuration:');
           gwpConfig.forEach(tier => {
-            console.log(\`Tier \${tier.name}:\`, {
+            console.log(`Tier ${tier.name}:`, {
               id: tier.id,
               threshold: tier.thresholdAmount,
               thresholdDollars: tier.thresholdAmount / 100,
@@ -4452,7 +4411,7 @@ export const loader = async ({ request }) => {
         cartDrawerSelectors.forEach(selector => {
           const element = document.querySelector(selector);
           if (element) {
-            console.log(\`Found \${selector}:\`, {
+            console.log(`Found ${selector}:`, {
               classes: element.className,
               isOpen: element.classList.contains('is-open') || 
                      element.classList.contains('open') || 
@@ -4556,12 +4515,12 @@ export const loader = async ({ request }) => {
         cartDrawerSelectors.forEach(selector => {
           const elements = document.querySelectorAll(selector);
           if (elements.length > 0) {
-            console.log(\`  \${selector}: \${elements.length} found\`);
+            console.log(`  ${selector}: ${elements.length} found`);
             elements.forEach((el, index) => {
-              console.log(\`    [\${index}] Classes: \${el.className}\`);
-              console.log(\`    [\${index}] ID: \${el.id}\`);
-              console.log(\`    [\${index}] Style display: \${el.style.display}\`);
-              console.log(\`    [\${index}] Computed display: \${window.getComputedStyle(el).display}\`);
+              console.log(`    [${index}] Classes: ${el.className}`);
+              console.log(`    [${index}] ID: ${el.id}`);
+              console.log(`    [${index}] Style display: ${el.style.display}`);
+              console.log(`    [${index}] Computed display: ${window.getComputedStyle(el).display}`);
             });
           }
         });
@@ -4583,13 +4542,13 @@ export const loader = async ({ request }) => {
         cartTriggerSelectors.forEach(selector => {
           const elements = document.querySelectorAll(selector);
           if (elements.length > 0) {
-            console.log(\`  \${selector}: \${elements.length} found\`);
+            console.log(`  ${selector}: ${elements.length} found`);
             elements.forEach((el, index) => {
-              console.log(\`    [\${index}] Tag: \${el.tagName}\`);
-              console.log(\`    [\${index}] Classes: \${el.className}\`);
-              console.log(\`    [\${index}] ID: \${el.id}\`);
-              console.log(\`    [\${index}] Href: \${el.getAttribute('href')}\`);
-              console.log(\`    [\${index}] Has click: \${typeof el.click === 'function'}\`);
+              console.log(`    [${index}] Tag: ${el.tagName}`);
+              console.log(`    [${index}] Classes: ${el.className}`);
+              console.log(`    [${index}] ID: ${el.id}`);
+              console.log(`    [${index}] Href: ${el.getAttribute('href')}`);
+              console.log(`    [${index}] Has click: ${typeof el.click === 'function'}`);
             });
           }
         });
@@ -4613,9 +4572,9 @@ export const loader = async ({ request }) => {
         themeFunctions.forEach(funcPath => {
           try {
             const func = eval(funcPath);
-            console.log(\`  \${funcPath}: \${typeof func === 'function' ? 'Available' : 'Not available'}\`);
+            console.log(`  ${funcPath}: ${typeof func === 'function' ? 'Available' : 'Not available'}`);
           } catch (error) {
-            console.log(\`  \${funcPath}: Error checking - \${error.message}\`);
+            console.log(`  ${funcPath}: Error checking - ${error.message}`);
           }
         });
         
@@ -4633,10 +4592,10 @@ export const loader = async ({ request }) => {
         cartCountSelectors.forEach(selector => {
           const elements = document.querySelectorAll(selector);
           if (elements.length > 0) {
-            console.log(\`  \${selector}: \${elements.length} found\`);
+            console.log(`  ${selector}: ${elements.length} found`);
             elements.forEach((el, index) => {
-              console.log(\`    [\${index}] Text: "\${el.textContent}"\`);
-              console.log(\`    [\${index}] Classes: \${el.className}\`);
+              console.log(`    [${index}] Text: "${el.textContent}"`);
+              console.log(`    [${index}] Classes: ${el.className}`);
             });
           }
         });
@@ -4653,7 +4612,7 @@ export const loader = async ({ request }) => {
         
         // Test the API call
         const shopDomain = window.location.hostname;
-        const apiUrl = \`/app/gwp/public/gwp-settings?shop=\${encodeURIComponent(shopDomain)}\`;
+        const apiUrl = `/app/gwp/public/gwp-settings?shop=${encodeURIComponent(shopDomain)}`;
         console.log('API URL that would be called:', apiUrl);
         
         // Make the actual API call to test
@@ -4665,7 +4624,7 @@ export const loader = async ({ request }) => {
               const tiers = data.tiers;
               console.log('Parsed tiers:', tiers);
               tiers.forEach(tier => {
-                console.log(\`Tier: \${tier.name}, Collection Handle: \${tier.collectionHandle || 'none'}\`);
+                console.log(`Tier: ${tier.name}, Collection Handle: ${tier.collectionHandle || 'none'}`);
               });
             }
           })
@@ -4822,7 +4781,7 @@ export const loader = async ({ request }) => {
             }
           });
           
-          console.log(\`GWP Debug: Icon \${index} threshold: $\${threshold}\`);
+          console.log(`GWP Debug: Icon ${index} threshold: $${threshold}`);
           
           // Update icons based on threshold
           if (threshold === 80 || threshold === 70) { // Handle both $80 and legacy $70 as Silver tier
@@ -4832,7 +4791,7 @@ export const loader = async ({ request }) => {
             debugLog('Updating $100 icon with Gold tier gift');
             updateProgressIcon(icon, sampleGifts.tier2.image, sampleGifts.tier2.title, sampleGifts.tier2.tierName);
           } else {
-            console.log(\`GWP Debug: Skipping icon with threshold $\${threshold} (not a gift tier)\`);
+            console.log(`GWP Debug: Skipping icon with threshold $${threshold} (not a gift tier)`);
           }
         });
         
@@ -4885,7 +4844,7 @@ export const loader = async ({ request }) => {
         debugLog('Found icons:', icons.length);
         
         icons.forEach((icon, index) => {
-          console.log(\`GWP Debug: Icon \${index}:\`, {
+          console.log(`GWP Debug: Icon ${index}:`, {
             id: icon.id,
             classes: icon.className,
             style: icon.getAttribute('style'),
@@ -4895,23 +4854,23 @@ export const loader = async ({ request }) => {
           const spans = icon.querySelectorAll('span');
           spans.forEach((span, spanIndex) => {
             const spanText = span.textContent.trim();
-            console.log(\`GWP Debug: Icon \${index} Span \${spanIndex}: "\${spanText}"\`);
+            console.log(`GWP Debug: Icon ${index} Span ${spanIndex}: "${spanText}"`);
             
             const dollarMatch = spanText.match(/\$(\d+(?:\.\d{2})?)/);
             if (dollarMatch) {
               const dollarAmount = parseFloat(dollarMatch[1]);
               const thresholdAmount = dollarAmount * 100;
-              console.log(\`GWP Debug: Icon \${index} threshold: \${thresholdAmount} cents\`);
+              console.log(`GWP Debug: Icon ${index} threshold: ${thresholdAmount} cents`);
               
               // Check if this matches our tiers
               if (thresholdAmount === 8000) {
-                console.log(\`GWP Debug: Icon \${index} matches $80 tier (Silver)\`);
+                console.log(`GWP Debug: Icon ${index} matches $80 tier (Silver)`);
               } else if (thresholdAmount === 7000) {
-                console.log(\`GWP Debug: Icon \${index} matches legacy $70 tier (treating as Silver)\`);
+                console.log(`GWP Debug: Icon ${index} matches legacy $70 tier (treating as Silver)`);
               } else if (thresholdAmount === 12000) {
-                console.log(\`GWP Debug: Icon \${index} matches $100 tier (Gold)\`);
+                console.log(`GWP Debug: Icon ${index} matches $100 tier (Gold)`);
               } else {
-                console.log(\`GWP Debug: Icon \${index} does not match gift tiers\`);
+                console.log(`GWP Debug: Icon ${index} does not match gift tiers`);
               }
             }
           });
@@ -4928,7 +4887,7 @@ export const loader = async ({ request }) => {
         const progressIcons = document.querySelectorAll('.custom-progress-icon.complete');
         progressIcons.forEach((icon, index) => {
           resetProgressIcon(icon);
-          console.log(\`GWP Debug: Reset icon \${index}\`);
+          console.log(`GWP Debug: Reset icon ${index}`);
         });
         
         debugLog('Progress bar icon reset completed');
@@ -4974,17 +4933,17 @@ export const loader = async ({ request }) => {
           
           debugLog('Variant breakdown:');
           products.forEach((variant, index) => {
-            console.log(\`  \${index + 1}. \${variant.title}\`);
-            console.log(\`     Variant ID: \${variant.variantId}\`);
-            console.log(\`     Product ID: \${variant.productId}\`);
-            console.log(\`     Product Title: \${variant.productTitle}\`);
-            console.log(\`     Variant Title: \${variant.variantTitle}\`);
-            console.log(\`     Image: \${variant.image ? variant.image.substring(0, 60) + '...' : 'No image'}\`);
-            console.log(\`     Price: $\${(parseInt(variant.price) / 100).toFixed(2)}\`);
+            console.log(`  ${index + 1}. ${variant.title}`);
+            console.log(`     Variant ID: ${variant.variantId}`);
+            console.log(`     Product ID: ${variant.productId}`);
+            console.log(`     Product Title: ${variant.productTitle}`);
+            console.log(`     Variant Title: ${variant.variantTitle}`);
+            console.log(`     Image: ${variant.image ? variant.image.substring(0, 60) + '...' : 'No image'}`);
+            console.log(`     Price: $${(parseInt(variant.price) / 100).toFixed(2)}`);
             console.log('');
           });
           
-          console.log(\`GWP Debug: Total variants found: \${products.length}\`);
+          console.log(`GWP Debug: Total variants found: ${products.length}`);
           debugLog('=== END VARIANT EXPANSION TEST ===');
           
           return products;
@@ -5077,15 +5036,3 @@ export const loader = async ({ request }) => {
       console.error('GWP Script: Error during initialization:', error);
     }
     })();
-  `;
-
-  return new Response(cartModalScript, {
-    headers: {
-      'Content-Type': 'application/javascript',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
-    },
-  });
-}; 

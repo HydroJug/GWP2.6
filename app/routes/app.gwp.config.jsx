@@ -55,62 +55,11 @@ async function loadFromFileCache(shop) {
   }
 }
 
-// Try to find config file by listing cache directory
-async function findConfigInCache(shop) {
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    
-    // Try multiple cache directories
-    const cacheDirs = ['./cache', '/tmp/cache', process.cwd() + '/cache'];
-    
-    for (const cacheDir of cacheDirs) {
-      try {
-        const files = await fs.readdir(cacheDir);
-        
-        // Look for any gwp-config file
-        const configFiles = files.filter(f => f.startsWith('gwp-config-') && f.endsWith('.json'));
-        
-        if (configFiles.length === 0) continue;
-        
-        // Use the first (or only) config file found
-        const configPath = path.join(cacheDir, configFiles[0]);
-        const configData = await fs.readFile(configPath, 'utf-8');
-        const config = JSON.parse(configData);
-        
-        console.log(`Found config file ${configFiles[0]} in ${cacheDir} for ${shop}`);
-        
-        // Store in memory with the requesting shop as key AND any aliases
-        const canonicalKey = normalizeHost(shop);
-        shopConfigs.set(canonicalKey, config);
-        
-        // Also store under common domain variations
-        const shopVariations = [
-          shop,
-          shop.replace('.myshopify.com', ''),
-          shop.replace('www.', ''),
-          'www.' + shop.replace('www.', '')
-        ];
-        
-        for (const variation of shopVariations) {
-          const normalizedVariation = normalizeHost(variation);
-          if (normalizedVariation && !shopConfigs.has(normalizedVariation)) {
-            shopConfigs.set(normalizedVariation, config);
-          }
-        }
-        
-        return config;
-      } catch (e) {
-        // Try next directory
-      }
-    }
-    
-    console.log('No config files found in any cache directory');
-    return null;
-  } catch (error) {
-    console.log('Error in findConfigInCache:', error.message);
-    return null;
-  }
+// Removed: findConfigInCache was a single-tenant fallback that could return
+// another store's config in multi-store deployments. Each shop must have its
+// own file (loaded by loadFromFileCache) or its own in-memory entry.
+async function findConfigInCache(_shop) {
+  return null;
 }
 
 function resolveShopKey(inputHost) {
@@ -186,24 +135,6 @@ export const loader = async ({ request }) => {
         progressBar: config.progressBar,
         isActive: config.isActive,
         message: "Configuration loaded"
-      }, {
-        headers: corsHeaders,
-      });
-    }
-
-    // Auto-learn alias if exactly one config exists in memory
-    if (shopConfigs.size === 1) {
-      const onlyKey = Array.from(shopConfigs.keys())[0];
-      const fallbackConfig = shopConfigs.get(onlyKey);
-      const aliasKey = normalizeHost(shop);
-      if (aliasKey && aliasKey !== onlyKey) {
-        aliasToShop.set(aliasKey, onlyKey);
-      }
-      return json({
-        tiers: fallbackConfig.tiers,
-        progressBar: fallbackConfig.progressBar,
-        isActive: fallbackConfig.isActive,
-        message: "Configuration loaded (alias learned)"
       }, {
         headers: corsHeaders,
       });

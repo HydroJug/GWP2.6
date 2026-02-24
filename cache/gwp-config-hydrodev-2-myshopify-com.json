@@ -1,0 +1,179 @@
+{
+  "tiers": [
+    {
+      "id": "tier1",
+      "thresholdAmount": 8300,
+      "name": "Silver",
+      "giftProductIds": [],
+      "maxSelections": 1,
+      "description": "Choose 1 free gift",
+      "giftProducts": [],
+      "collectionId": "535374725421",
+      "collectionHandle": "can-cooler-16oz",
+      "collectionTitle": "Can Cooler (16oz)",
+      "collectionProductIds": [
+        "gid://shopify/Product/10219086086445",
+        "gid://shopify/Product/10219086119213",
+        "gid://shopify/Product/10219094311213",
+        "gid://shopify/Product/10219095556397",
+        "gid://shopify/Product/10219095589165",
+        "gid://shopify/Product/10219097456941",
+        "gid://shopify/Product/10219097489709",
+        "gid://shopify/Product/10219097522477",
+        "gid://shopify/Product/10219097555245",
+        "gid://shopify/Product/10219097588013",
+        "gid://shopify/Product/10219097620781",
+        "gid://shopify/Product/10219097653549",
+        "gid://shopify/Product/10219097719085",
+        "gid://shopify/Product/10219097751853",
+        "gid://shopify/Product/10219097784621",
+        "gid://shopify/Product/10219099357485",
+        "gid://shopify/Product/10219099390253",
+        "gid://shopify/Product/10219100242221",
+        "gid://shopify/Product/10219100569901",
+        "gid://shopify/Product/10219101421869",
+        "gid://shopify/Product/10219104174381"
+      ],
+      "collectionImageUrl": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-AutumnCheckers-WPI_eb963a7d-3872-43da-ae4a-676b0de01210.png?v=1771368809",
+      "displayProducts": [
+        {
+          "variantId": "51830331769133",
+          "productId": "10219086086445",
+          "title": "Autumn Checkers",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-AutumnCheckers-WPI_eb963a7d-3872-43da-ae4a-676b0de01210.png?v=1771368809"
+        },
+        {
+          "variantId": "51830331801901",
+          "productId": "10219086119213",
+          "title": "Pine",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Pine-WPI_c278c630-bda1-4650-b131-2152f55c1c00.png?v=1771368812"
+        },
+        {
+          "variantId": "51830359916845",
+          "productId": "10219094311213",
+          "title": "Holly",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Holly1-WPI_8a9a105f-1694-41ce-be5b-ea5416aad10a.png?v=1771369289"
+        },
+        {
+          "variantId": "51830362210605",
+          "productId": "10219095556397",
+          "title": "Dream",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Dream1-WPI_2fe86f78-2c3b-42cc-a226-4da354508b61.png?v=1771369381"
+        },
+        {
+          "variantId": "51830362243373",
+          "productId": "10219095589165",
+          "title": "Glam",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Glam1-WPI_2adc8e15-6519-45d0-9e00-5b8ed90dde20.png?v=1771369384"
+        },
+        {
+          "variantId": "51830365913389",
+          "productId": "10219097456941",
+          "title": "Courtyard",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Courtyard-WPI_9ed9ffe9-473e-4aa3-9b1b-bbfdb1161964.png?v=1771369541"
+        },
+        {
+          "variantId": "51830365946157",
+          "productId": "10219097489709",
+          "title": "Black",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Black-WPI_39d3b9e9-013b-4b70-b7df-e229d5f2a60e.png?v=1771369544"
+        },
+        {
+          "variantId": "51830365978925",
+          "productId": "10219097522477",
+          "title": "Dune",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Dune-WPI_237c40bf-29db-42d8-95ca-533572105fae.png?v=1771369547"
+        },
+        {
+          "variantId": "51830366011693",
+          "productId": "10219097555245",
+          "title": "Rodeo",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Rodeo-WPI_14b9f311-47b6-441e-bfd6-aa2e044f2fff.png?v=1771369552"
+        },
+        {
+          "variantId": "51830366077229",
+          "productId": "10219097588013",
+          "title": "Brown Leopard",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-BrownLeopard-WPI_73408618-fe8e-4fe6-8e88-b2ab5fe442e5.png?v=1771369555"
+        },
+        {
+          "variantId": "51830366109997",
+          "productId": "10219097620781",
+          "title": "Linen",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Linen-WPI_acebce67-82e2-4f93-a112-6426d0d2bc1e.png?v=1771369558"
+        },
+        {
+          "variantId": "51830366175533",
+          "productId": "10219097653549",
+          "title": "Dusty Rose",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-DustyRose-WPI_b09cdc21-7808-432f-a815-4b9fd18d0dc4.png?v=1771369563"
+        },
+        {
+          "variantId": "51830366241069",
+          "productId": "10219097719085",
+          "title": "Camo",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Camo-WPI_85a15c4a-f88f-4489-b909-d3407519dd05.png?v=1771369564"
+        },
+        {
+          "variantId": "51830366339373",
+          "productId": "10219097751853",
+          "title": "Wildrose",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Wildrose-WPI_dc6dd025-57d5-4f61-b7b7-8822e89f686b.png?v=1771369567"
+        },
+        {
+          "variantId": "51830366372141",
+          "productId": "10219097784621",
+          "title": "Cascade",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Cascade-WPI_13162599-5ba1-4f43-a9cd-c7b128fa77ab.png?v=1771369570"
+        },
+        {
+          "variantId": "51830371975469",
+          "productId": "10219099357485",
+          "title": "Winter Berry",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-WinterBerry-WPI_9dce66ba-bce8-484e-a4a8-e0b8d31cd021.png?v=1771369678"
+        },
+        {
+          "variantId": "51830372008237",
+          "productId": "10219099390253",
+          "title": "Mist",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Mist-WPI_e29689bf-ce8a-4e13-addc-e13a6033eb11.png?v=1771369681"
+        },
+        {
+          "variantId": "51830373974317",
+          "productId": "10219100242221",
+          "title": "Queen of Hearts",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-QueenofHearts-WPI_59878963-a840-499e-ab82-ab38e72e4582.png?v=1771369750"
+        },
+        {
+          "variantId": "51830374859053",
+          "productId": "10219100569901",
+          "title": "Be Mine",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-BeMine-WPI_627108f8-4b08-44c0-9e19-d40a45b72ff7.png?v=1771369781"
+        },
+        {
+          "variantId": "51830376202541",
+          "productId": "10219101421869",
+          "title": "Mocha Tortoise",
+          "image": null
+        },
+        {
+          "variantId": "51830381674797",
+          "productId": "10219104174381",
+          "title": "Primrose",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/16ozCan-Primrose-WPI-1_2_6f1ef3b6-2389-4477-a27f-4a28d06f54c3.png?v=1771370035"
+        }
+      ]
+    }
+  ],
+  "progressBar": {
+    "enabled": true,
+    "selector": ".cart-drawer__items",
+    "position": "above",
+    "modalBehavior": "auto",
+    "freeShipping": {
+      "enabled": true,
+      "threshold": 6000
+    }
+  },
+  "isActive": true
+}

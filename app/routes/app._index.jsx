@@ -251,10 +251,9 @@ export const action = async ({ request }) => {
         const availableProducts = collection.products.edges.filter(productEdge => {
           const product = productEdge.node;
           const firstVariant = product.variants.edges[0]?.node;
-          return product.status === 'ACTIVE' && 
-                 firstVariant && 
-                 firstVariant.availableForSale && 
-                 (firstVariant.inventoryQuantity === null || firstVariant.inventoryQuantity > 0);
+          return product.status === 'ACTIVE' &&
+                 firstVariant &&
+                 firstVariant.availableForSale;
         });
         
         return {
@@ -311,10 +310,14 @@ export const action = async ({ request }) => {
                           featuredImage {
                             url
                           }
-                          variants(first: 1) {
+                          variants(first: 10) {
                             edges {
                               node {
                                 id
+                                title
+                                image {
+                                  url
+                                }
                               }
                             }
                           }
@@ -327,25 +330,48 @@ export const action = async ({ request }) => {
             );
             const collectionData = await collectionResponse.json();
             const products = collectionData.data?.collection?.products?.edges || [];
-            
+
             // Extract product IDs (full GIDs like gid://shopify/Product/123)
             const productIds = products.map(edge => edge.node.id);
             const firstProduct = products[0]?.node;
-            
+
+            // Build display data for the checkout extension (avoids Storefront API calls at checkout)
+            const displayProducts = products.flatMap(edge => {
+              const product = edge.node;
+              return product.variants.edges.map(ve => ({
+                variantId: ve.node.id.split('/').pop(),
+                productId: product.id.split('/').pop(),
+                title: product.title + (ve.node.title !== 'Default Title' ? ` - ${ve.node.title}` : ''),
+                image: ve.node.image?.url || product.featuredImage?.url || null,
+              }));
+            });
+
             console.log(`Found ${productIds.length} products in collection ${tier.collectionHandle}`);
             console.log(`Product IDs: ${productIds.slice(0, 5).join(', ')}${productIds.length > 5 ? '...' : ''}`);
-            
+
             return {
               ...tier,
               // Store the full product GIDs for the discount function
               collectionProductIds: productIds,
+              // Store display data for the checkout extension
+              displayProducts,
               collectionImageUrl: firstProduct?.featuredImage?.url || tier.collectionImageUrl
             };
           } catch (error) {
             console.error(`Error fetching collection products for tier ${tier.name}:`, error);
           }
         }
-        return tier;
+        // Individual product tier — build displayProducts from already-fetched giftProducts
+        const displayProducts = (tier.giftProducts || []).flatMap(product => {
+          const variants = product.variants?.edges || [];
+          return variants.map(ve => ({
+            variantId: ve.node.id.split('/').pop(),
+            productId: product.id.split('/').pop(),
+            title: product.title + (ve.node.title !== 'Default Title' ? ` - ${ve.node.title}` : ''),
+            image: product.featuredImage?.url || null,
+          }));
+        });
+        return { ...tier, displayProducts };
       }));
       
       const tiersWithImages = tiersWithProducts;
@@ -371,117 +397,19 @@ export const action = async ({ request }) => {
         console.error('Error ensuring Storefront token:', tokenError.message);
       }
       
-      // Also save to our config API for public access
-      try {
-        const baseUrl = process.env.SHOPIFY_APP_URL || 'https://gwp-2-6.vercel.app';
-        // Admin save debug disabled
-        // console.debug('Saving config to API for shop:', session.shop);
-        // console.debug('Config data:', { tiers, progressBar, isActive: true });
-
-        // Determine canonical storage key as the shop's primary domain host
-        let primaryDomainHost = session.shop;
-        try {
-          const primaryResp = await admin.graphql(`{ shop { primaryDomain { host } } }`);
-          const primaryData = await primaryResp.json();
-          const host = primaryData?.data?.shop?.primaryDomain?.host;
-          if (host) {
-            primaryDomainHost = host;
-          }
-          // console.debug('Primary domain host resolved as:', primaryDomainHost);
-        } catch (e) {
-          console.error('Failed to fetch primary domain host, falling back to session.shop:', e);
-        }
-
-        // Build aliases so either domain works
-        const aliases = Array.from(new Set([
-          session.shop,
-          primaryDomainHost,
-          primaryDomainHost.startsWith('www.') ? primaryDomainHost.slice(4) : `www.${primaryDomainHost}`
-        ]));
-        // console.debug('Aliases to save with config:', aliases);
-        
-        const configResponse = await fetch(`${baseUrl}/app/gwp/config`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            // Use primary domain as the canonical key so storefront calls using host hit directly
-            shop: primaryDomainHost,
-            config: {
-              tiers: tiers,
-              progressBar: progressBar,
-              isActive: true
-            },
-            aliases
-          })
-        });
-        
-        if (configResponse.ok) {
-          // console.debug('Configuration saved to public API');
-          // const responseData = await configResponse.json();
-          // console.debug('Config API response:', responseData);
-        } else {
-          console.error('Failed to save configuration to public API:', configResponse.status);
-          const errorText = await configResponse.text();
-          console.error('Error response:', errorText);
-        }
-      } catch (error) {
-        console.error('Error saving configuration to public API:', error);
-      }
-      
-      // Also save a cached configuration for the public API
+      // Write config to local file cache so api.public.gwp-settings serves fresh data
       try {
         const fs = await import('fs/promises');
         const path = await import('path');
-        
-        // Create cached config with collection-based tiers
-        const cachedConfig = {
-          tiers: tiers.map(tier => ({
-            id: tier.id,
-            name: tier.name,
-            thresholdAmount: tier.thresholdAmount,
-            description: tier.description,
-            maxSelections: tier.maxSelections,
-            // Include collection info if available
-            collectionId: tier.collectionId,
-            collectionHandle: tier.collectionHandle,
-            collectionTitle: tier.collectionTitle,
-            collectionImageUrl: tier.collectionImageUrl,
-            // Include product IDs for discount function
-            collectionProductIds: tier.collectionProductIds || [],
-            // Keep product-based approach as fallback
-            giftVariantIds: tier.giftVariantIds || [],
-            giftProducts: tier.giftProducts || []
-          })),
-          progressBar: progressBar,
-          isActive: true
-        };
-
-        const shopFileName = session.shop.replace(/[^a-zA-Z0-9]/g, '-');
-        const configFileName = `gwp-config-${shopFileName}.json`;
-        const configContent = JSON.stringify(cachedConfig, null, 2);
-        
-        // Try to save to multiple cache directories for different environments
-        // Vercel's writable filesystem is in /tmp, local dev uses ./cache
-        const cacheDirs = ['./cache', '/tmp/cache'];
-        
-        for (const cacheDir of cacheDirs) {
-          try {
-            await fs.mkdir(cacheDir, { recursive: true });
-            const configPath = path.join(cacheDir, configFileName);
-            await fs.writeFile(configPath, configContent);
-            console.log(`Cached config saved to: ${configPath}`);
-          } catch (dirError) {
-            console.log(`Could not save to ${cacheDir}:`, dirError.message);
-          }
-        }
-        
-      } catch (cacheError) {
-        console.error('Error saving cached config:', cacheError);
+        const cacheDir = './cache';
+        await fs.mkdir(cacheDir, { recursive: true });
+        const shopSlug = session.shop.replace(/[^a-zA-Z0-9]/g, '-');
+        const configPath = path.join(cacheDir, `gwp-config-${shopSlug}.json`);
+        await fs.writeFile(configPath, JSON.stringify({ tiers, progressBar, isActive: true }, null, 2));
+        console.log(`Config written to file cache: ${configPath}`);
+      } catch (cacheErr) {
+        console.log('File cache write skipped (non-fatal):', cacheErr.message);
       }
-
-
 
       // Create/update the automatic discount using the function extension
       console.log('🎯 About to create/update automatic discount');
@@ -1490,8 +1418,14 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       console.log(`  Tier ${index + 1}: ${tier.name}, threshold: $${(tier.thresholdAmount / 100).toFixed(2)}, products: ${tier.productIds.length}`);
     });
     
-    // Create a unique title with timestamp
-    const uniqueTitle = `GWP Tiered Discount ${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
+    // Build title from tier collection names and thresholds
+    const tierLabels = tiers.map(tier => {
+      const collectionName = tier.collectionTitle || tier.name || 'Collection';
+      const threshold = `$${(tier.thresholdAmount / 100).toFixed(0)}`;
+      return `${collectionName} ${threshold}`;
+    });
+    const date = new Date().toISOString().slice(0, 10);
+    const uniqueTitle = `GWP - ${tierLabels.join(' | ')} - ${date}`;
     
     const createResponse = await admin.graphql(createMutation, {
       variables: {
