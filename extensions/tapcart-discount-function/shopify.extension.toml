@@ -1,0 +1,45 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "Tapcart Exclusive Discount Function"
+handle = "tapcart-discount-function"
+uid = "a4ca30f0-c468-8827-4c80-e39b71210396f29b5bfd"
+type = "function"
+
+description = "Provides app-exclusive discounts for customers shopping through the Tapcart mobile app"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [[extensions.targeting]]
+  target = "cart.delivery-options.discounts.generate.run"
+  input_query = "src/cart_delivery_options_discounts_generate_run.graphql"
+  export = "cart-delivery-options-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
+
+  [extensions.settings]
+  [[extensions.settings.fields]]
+  key = "discount_method"
+  type = "single_line_text_field"
+  name = "Discount Method"
+  description = "The type of discount to apply"
+  default = "amount_off_products"
+
+  [[extensions.settings.fields]]
+  key = "channel_key"
+  type = "single_line_text_field"
+  name = "Channel Key"
+  description = "The cart attribute key to identify Tapcart users"
+  default = "channel"
+
+  [[extensions.settings.fields]]
+  key = "channel_value"
+  type = "single_line_text_field"
+  name = "Channel Value"
+  description = "The cart attribute value that identifies Tapcart users"
+  default = "tapcart"

@@ -20,9 +20,9 @@ export default function App() {
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">
-          Home
+          GWP Config
         </Link>
-        <Link to="/app/additional">Additional page</Link>
+        <Link to="/app/tapcart">Tapcart Discounts</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

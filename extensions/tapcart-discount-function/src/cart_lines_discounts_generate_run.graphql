@@ -1,0 +1,47 @@
+query CartInput {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        subtotalAmount {
+          amount
+        }
+      }
+      merchandise {
+        ... on ProductVariant {
+          id
+          title
+          product {
+            title
+          }
+        }
+      }
+    }
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    attribute(key: "channel") {
+      value
+    }
+    buyerIdentity {
+      customer {
+        id
+        email
+        firstName
+        lastName
+        amountSpent {
+          amount
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "tapcart", key: "discount_config") {
+      value
+    }
+  }
+}
