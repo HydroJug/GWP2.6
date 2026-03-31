@@ -1,0 +1,26 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "t:name"
+handle = "bundle-builder"
+uid = "c7f3a9b1-d824-4e56-8f0c-2b7a193e8d45c3f9a812"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.input.variables]
+  namespace = "bundle_builder"
+  key = "variables"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/bundle-builder/new"
+  details = "/app/bundle-builder/:id"

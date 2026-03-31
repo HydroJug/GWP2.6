@@ -1,0 +1,11 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "POS Channel Attribute"
+handle = "pos-channel-attribute"
+uid = "209444a5-b55c-4e5f-e05e-3cb21cb4a61e7250c5d6"
+type = "ui_extension"
+
+[[extensions.targeting]]
+module = "./src/POSChannelTile.jsx"
+target = "pos.home.tile.render"

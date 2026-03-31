@@ -1,0 +1,26 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "t:name"
+handle = "buy-xy-get-z"
+uid = "518ff9d2-7470-facd-0bcb-423673c26c723f3905ee"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.input.variables]
+  namespace = "buy_xy_get_z"
+  key = "variables"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/buy-xy-get-z/new"
+  details = "/app/buy-xy-get-z/:id"

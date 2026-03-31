@@ -1,0 +1,26 @@
+query DeliveryInput {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+    deliveryGroups {
+      id
+      deliveryOptions {
+        handle
+        title
+        cost {
+          amount
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "combined_discount", key: "config") {
+      value
+    }
+  }
+}

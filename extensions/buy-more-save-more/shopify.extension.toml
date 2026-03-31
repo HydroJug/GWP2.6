@@ -1,0 +1,22 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "t:name"
+handle = "buy-more-save-more"
+uid = "fa7c22e3-54ba-2741-8bee-433b855e7e3b13720a4e"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/buy-more-save-more/new"
+  details = "/app/buy-more-save-more/:id"

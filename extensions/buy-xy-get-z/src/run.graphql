@@ -1,0 +1,28 @@
+query CartInput($collX: [ID!], $collY: [ID!], $collZ: [ID!]) {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+            isX: inAnyCollection(ids: $collX)
+            isY: inAnyCollection(ids: $collY)
+            isZ: inAnyCollection(ids: $collZ)
+          }
+        }
+      }
+    }
+  }
+  discount {
+    metafield(namespace: "buy_xy_get_z", key: "config") {
+      value
+    }
+  }
+}

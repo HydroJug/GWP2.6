@@ -1,0 +1,27 @@
+query CartInput($s0: [ID!], $s1: [ID!], $s2: [ID!], $s3: [ID!], $s4: [ID!], $s5: [ID!], $s6: [ID!]) {
+  cart {
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+            s0: inAnyCollection(ids: $s0)
+            s1: inAnyCollection(ids: $s1)
+            s2: inAnyCollection(ids: $s2)
+            s3: inAnyCollection(ids: $s3)
+            s4: inAnyCollection(ids: $s4)
+            s5: inAnyCollection(ids: $s5)
+            s6: inAnyCollection(ids: $s6)
+          }
+        }
+      }
+    }
+  }
+  discount {
+    metafield(namespace: "bundle_builder", key: "config") {
+      value
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit } from "@remix-run/react";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -20,9 +20,9 @@ import {
   ResourceItem,
   Checkbox,
 } from "@shopify/polaris";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { authenticate } from "../shopify.server";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -357,11 +357,10 @@ export const action = async ({ request }) => {
 
 export default function TapcartDiscountsPage() {
   const { tapcartFunctionId, discounts, products, salesChannels, customers } = useLoaderData();
-  const submit = useSubmit();
+  const fetcher = useFetcher();
+  const shopify = useAppBridge();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [salesChannelModalOpen, setSalesChannelModalOpen] = useState(false);
@@ -401,6 +400,20 @@ export default function TapcartDiscountsPage() {
   };
 
   const [formData, setFormData] = useState(emptyForm);
+
+  // Handle fetcher responses with toasts
+  useEffect(() => {
+    if (fetcher.data?.success) {
+      shopify.toast.show("Discount created successfully!");
+      setIsModalOpen(false);
+      setIsSubmitting(false);
+      setFormData(emptyForm);
+      setSelectedCustomerIds([]);
+    } else if (fetcher.data?.error) {
+      shopify.toast.show(fetcher.data.error, { isError: true });
+      setIsSubmitting(false);
+    }
+  }, [fetcher.data, shopify]);
 
   const handleInputChange = useCallback((key, value) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -489,18 +502,8 @@ export default function TapcartDiscountsPage() {
       formDataToSubmit.set("specificCustomers", selectedCustomerIds.join(","));
     }
 
-    try {
-      await submit(formDataToSubmit, { method: "post" });
-      setSuccessMessage("Discount created successfully!");
-      setIsModalOpen(false);
-      setIsSubmitting(false);
-      setFormData(emptyForm);
-      setSelectedCustomerIds([]);
-    } catch (error) {
-      setErrorMessage("Failed to create discount. Please try again.");
-      setIsSubmitting(false);
-    }
-  }, [formData, submit, tapcartFunctionId, selectedCustomerIds]);
+    fetcher.submit(formDataToSubmit, { method: "post" });
+  }, [formData, fetcher, tapcartFunctionId, selectedCustomerIds]);
 
   const formatDiscounts = (discounts) => {
     const formatted = [];
@@ -558,6 +561,7 @@ export default function TapcartDiscountsPage() {
     <Page
       title="Tapcart Exclusive Discounts"
       subtitle="Manage app-exclusive discounts for Tapcart mobile app users"
+      backAction={{ content: "Home", url: "/app" }}
       primaryAction={{
         content: "Create discount",
         onAction: () => {
@@ -578,18 +582,6 @@ export default function TapcartDiscountsPage() {
             The Tapcart discount function is not deployed yet. Run{" "}
             <code>shopify app deploy</code> to deploy it, then refresh this page.
           </Text>
-        </Banner>
-      )}
-
-      {errorMessage && (
-        <Banner tone="critical" onDismiss={() => setErrorMessage("")}>
-          {errorMessage}
-        </Banner>
-      )}
-
-      {successMessage && (
-        <Banner tone="success" onDismiss={() => setSuccessMessage("")}>
-          {successMessage}
         </Banner>
       )}
 

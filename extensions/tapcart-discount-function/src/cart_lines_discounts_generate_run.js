@@ -96,9 +96,12 @@ function checkAdditionalEligibility(customer, buyerIdentity, config) {
 export function cartLinesDiscountsGenerateRun(input) {
   const { cart } = input;
 
-  const config = input.discount?.metafield?.value
-    ? JSON.parse(input.discount.metafield.value)
-    : DEFAULT_CONFIG;
+  const config = {
+    ...DEFAULT_CONFIG,
+    ...(input.discount?.metafield?.value
+      ? JSON.parse(input.discount.metafield.value)
+      : {}),
+  };
 
   const isTapcartUser = cart.attribute?.value === config.channelValue;
 

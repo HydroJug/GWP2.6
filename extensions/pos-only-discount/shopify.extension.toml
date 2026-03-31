@@ -1,0 +1,22 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "t:name"
+handle = "pos-only-discount"
+uid = "36419416-a721-039e-ccf1-401090261cfdd2809396"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/pos-only-discount/new"
+  details = "/app/pos-only-discount/:id"

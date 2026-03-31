@@ -33,8 +33,18 @@
   {% endif %}
 {% endfor %}
 
-{% comment %} Only show if enabled and we have config {% endcomment %}
-{% if block.settings.enabled and gwp_config and gwp_config.tiers %}
+{% comment %} Filter tiers to those marked showOnProgressBar {% endcomment %}
+{% assign progress_bar_tiers = '' | split: ',' %}
+{% if gwp_config and gwp_config.tiers %}
+  {% for tier in gwp_config.tiers %}
+    {% if tier.showOnProgressBar %}
+      {% assign progress_bar_tiers = progress_bar_tiers | concat: tier %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% comment %} Only show if progress bar is enabled and there are tiers to display {% endcomment %}
+{% if gwp_config and gwp_config.progressBar.enabled and progress_bar_tiers.size > 0 %}
   <div class="gwp-progress-bar-container" 
        data-cart-total="{{ cart.total_price }}"
        data-gwp-config="{{ gwp_config | json | escape }}"
@@ -47,7 +57,7 @@
       {% assign next_tier = null %}
       
       {% comment %} Find highest eligible tier and next tier {% endcomment %}
-      {% for tier in gwp_config.tiers %}
+      {% for tier in progress_bar_tiers %}
         {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
         {% if cart_total >= tier_threshold %}
           {% assign highest_eligible_tier = tier %}
@@ -84,8 +94,8 @@
           {% endif %}
         {% endif %}
       {% else %}
-        {% if gwp_config.tiers.first %}
-          {% assign first_tier = gwp_config.tiers.first %}
+        {% if progress_bar_tiers.first %}
+          {% assign first_tier = progress_bar_tiers.first %}
           Spend {{ first_tier.thresholdAmount | minus: cart_total | money_without_trailing_zeros }} more for <span>{{ first_tier.name }} Gift</span>
         {% endif %}
       {% endif %}
@@ -95,7 +105,7 @@
     <div class="gwp-progress-bar-wrapper">
       <div class="gwp-progress-bar-meter">
         {% assign max_threshold = 0 %}
-        {% for tier in gwp_config.tiers %}
+        {% for tier in progress_bar_tiers %}
           {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
           {% if tier_threshold > max_threshold %}
             {% assign max_threshold = tier_threshold %}
@@ -111,7 +121,7 @@
       </div>
       
       {% comment %} Tier icons {% endcomment %}
-      {% for tier in gwp_config.tiers %}
+      {% for tier in progress_bar_tiers %}
         {% assign tier_threshold = tier.thresholdAmount | times: 1 %}
         {% assign tier_position = tier_threshold | times: 100 | divided_by: max_threshold %}
         {% if tier_position > 100 %}

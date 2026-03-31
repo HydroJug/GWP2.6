@@ -1,0 +1,26 @@
+query CartInput {
+  cart {
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+          }
+        }
+      }
+    }
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+  }
+  discount {
+    metafield(namespace: "buy_more_save_more", key: "config") {
+      value
+    }
+  }
+}

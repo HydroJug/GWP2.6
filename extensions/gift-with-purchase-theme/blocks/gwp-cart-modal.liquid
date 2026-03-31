@@ -65,14 +65,19 @@
     
     // Load GWP configuration from metafields only
     async function fetchGWPConfig() {
-      if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
+      // Always load progress bar config — independent of whether GWP discount is active
+      if (gwpMetafieldConfig) {
+        progressBarConfig = gwpMetafieldConfig.progressBar || null;
+      }
+
+      // GWP modal requires an active discount + tiers
+      if (gwpMetafieldConfig && gwpMetafieldConfig.isActive && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
         debugLog('Using config from app metafields');
         gwpConfig = gwpMetafieldConfig;
-        progressBarConfig = gwpMetafieldConfig.progressBar;
         return gwpConfig;
       }
 
-      debugLog('No metafield config available');
+      debugLog('No metafield config available or GWP is inactive');
       return null;
     }
     
@@ -172,23 +177,31 @@
     // Render the progress bar HTML
     function renderProgressBar() {
       const container = document.getElementById('gwp-injected-progress-bar');
-      if (!container || !gwpConfig || !gwpConfig.tiers || gwpConfig.tiers.length === 0) {
-        debugLog('Cannot render progress bar - container or tiers missing', { container: !!container, tiers: gwpConfig?.tiers?.length });
-        return;
-      }
-      
-      // Update last cart total to prevent unnecessary re-renders
-      lastCartTotal = cartData?.total_price;
-      
-      const cartTotal = cartData?.total_price || 0;
-      const tiers = gwpConfig.tiers.sort((a, b) => a.thresholdAmount - b.thresholdAmount);
-      
-      // Check for free shipping config
+
+      // Gift tiers only show when the GWP discount is active
+      const gwpActive = !!(gwpMetafieldConfig?.isActive);
+      const allTiers = gwpMetafieldConfig?.tiers || [];
+      const tiers = gwpActive
+        ? allTiers.filter(t => t.showOnProgressBar).sort((a, b) => a.thresholdAmount - b.thresholdAmount)
+        : [];
+
+      // Free shipping milestone is independent of GWP discount state
       const freeShipping = progressBarConfig?.freeShipping;
       const hasFreeShipping = freeShipping?.enabled && freeShipping?.threshold > 0;
-      
-      // Calculate max threshold including free shipping if enabled
-      let maxThreshold = Math.max(...tiers.map(t => t.thresholdAmount));
+
+      // Nothing to render
+      if (!container || (tiers.length === 0 && !hasFreeShipping)) {
+        debugLog('Cannot render progress bar - no tiers or free shipping to show');
+        return;
+      }
+
+      // Update last cart total to prevent unnecessary re-renders
+      lastCartTotal = cartData?.total_price;
+
+      const cartTotal = cartData?.total_price || 0;
+
+      // Calculate max threshold (guard against empty tiers array)
+      let maxThreshold = tiers.length > 0 ? Math.max(...tiers.map(t => t.thresholdAmount)) : 0;
       if (hasFreeShipping && freeShipping.threshold > maxThreshold) {
         maxThreshold = freeShipping.threshold;
       }
@@ -714,11 +727,17 @@
     // CART MODAL SCRIPT LOADING
     // ============================================
 
-    // Set global config BEFORE loading the cart modal script
-    // This way the script can use it immediately without fetching
-    if (gwpMetafieldConfig && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
+    // Set global config BEFORE loading the cart modal script.
+    // Only pass tiers when GWP is active — the external script uses this to
+    // decide whether to run the gift modal at all.
+    if (gwpMetafieldConfig && gwpMetafieldConfig.isActive && gwpMetafieldConfig.tiers && gwpMetafieldConfig.tiers.length > 0) {
       window.__GWP_EMBEDDED_CONFIG__ = gwpMetafieldConfig;
       debugLog('Set global __GWP_EMBEDDED_CONFIG__ from Liquid metafields');
+    } else {
+      // Pass an empty-tiers config so the external script exits early,
+      // but progressBar config is still available if needed.
+      window.__GWP_EMBEDDED_CONFIG__ = { tiers: [], progressBar: gwpMetafieldConfig?.progressBar || null };
+      debugLog('GWP inactive — passing empty tiers to cart modal script');
     }
 
     // Main initialization

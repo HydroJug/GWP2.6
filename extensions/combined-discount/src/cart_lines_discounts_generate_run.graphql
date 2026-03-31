@@ -1,0 +1,16 @@
+query CartInput {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "combined_discount", key: "config") {
+      value
+    }
+  }
+}

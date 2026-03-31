@@ -1,17 +1,16 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "cb141d9f9e2354841d444043a139da8f"
-name = "GWP-2.5"
-handle = "gwp-2-5"
-application_url = "https://gwp-2-5.vercel.app/"
+client_id = "708929f2fb4528d6eef438d7918e7d3a"
+name = "Hydro-GWP"
+handle = "hydro-gwp"
+application_url = "https://gwp-2-6.vercel.app/"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
-api_version = "2025-04"
+api_version = "2025-10"
 
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]
@@ -23,13 +22,13 @@ api_version = "2025-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,write_cart_transforms,write_discounts,read_discounts"
+scopes = "read_products,write_products,write_cart_transforms,read_discounts,write_discounts,read_customers,read_publications"
 
 [auth]
 redirect_urls = [
-  "https://gwp-2-5.vercel.app/auth/callback",
-  "https://gwp-2-5.vercel.app/auth/shopify/callback",
-  "https://gwp-2-5.vercel.app/api/auth/callback"
+  "https://gwp-2-6.vercel.app/auth/callback",
+  "https://gwp-2-6.vercel.app/auth/shopify/callback",
+  "https://gwp-2-6.vercel.app/api/auth/callback"
 ]
 
 [pos]

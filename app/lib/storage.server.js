@@ -404,4 +404,50 @@ export async function saveGWPSettings(admin, shop, settings) {
     console.error('Error saving GWP settings:', error);
     throw error;
   }
-} 
+}
+
+/**
+ * Lightweight helper to flip the isActive flag in the GWP metafield without
+ * re-resolving products or running the full saveGWPSettings pipeline.
+ */
+export async function setGWPIsActive(admin, isActive) {
+  try {
+    const [appRes, settingsRes] = await Promise.all([
+      admin.graphql(`query { currentAppInstallation { id } shop { id } }`),
+      admin.graphql(
+        `#graphql
+          query {
+            currentAppInstallation {
+              metafield(namespace: "gwp_settings", key: "config") { value }
+            }
+          }`
+      ),
+    ]);
+    const appData = await appRes.json();
+    const settingsData = await settingsRes.json();
+
+    const appInstallationId = appData.data?.currentAppInstallation?.id;
+    const shopId = appData.data?.shop?.id;
+    if (!appInstallationId) return;
+
+    const raw = settingsData.data?.currentAppInstallation?.metafield?.value;
+    if (!raw) return;
+
+    const updated = { ...JSON.parse(raw), isActive };
+    const value = JSON.stringify(updated);
+
+    const metafields = [
+      { ownerId: appInstallationId, namespace: "gwp_settings", key: "config", type: "json", value },
+    ];
+    if (shopId) {
+      metafields.push({ ownerId: shopId, namespace: "gwp", key: "config", type: "json", value });
+    }
+
+    await admin.graphql(
+      `mutation m($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { userErrors { message } } }`,
+      { variables: { m: metafields } }
+    );
+  } catch (err) {
+    console.error("setGWPIsActive failed:", err);
+  }
+}

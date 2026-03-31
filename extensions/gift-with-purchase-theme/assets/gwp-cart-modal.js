@@ -240,9 +240,7 @@
               item.properties['gwp_gift'] === 'true' ||
               // Checkout extension gifts
               item.properties._gift_with_purchase === 'true' ||
-              item.properties['_gift_with_purchase'] === 'true' ||
-              // Zero-price items (likely gifts)
-              item.price === 0 || item.final_price === 0
+              item.properties['_gift_with_purchase'] === 'true'
             );
             return hasGWPProperty;
           });
@@ -372,6 +370,7 @@
                 
                 // Try primary removal method using item key
                 let removalSuccessful = false;
+                const cartSections = 'cart-drawer,cart-icon-bubble';
                 let response = await fetch('/cart/change.js', {
                   method: 'POST',
                   headers: {
@@ -379,7 +378,8 @@
                   },
                   body: JSON.stringify({
                     id: giftToRemove.item.key,
-                    quantity: 0
+                    quantity: 0,
+                    sections: cartSections
                   })
                 });
                 
@@ -399,7 +399,8 @@
                       },
                       body: JSON.stringify({
                         id: giftToRemove.item.variant_id,
-                        quantity: 0
+                        quantity: 0,
+                        sections: cartSections
                       })
                     });
                     
@@ -420,7 +421,8 @@
                           },
                           body: JSON.stringify({
                             line: lineNumber,
-                            quantity: 0
+                            quantity: 0,
+                            sections: cartSections
                           })
                         });
                         
@@ -440,16 +442,15 @@
                   debugLog('Gift removal successful, triggering comprehensive UI refresh...');
                   
                   try {
-                    // Update cart data first
-                    const updatedCartResponse = await fetch('/cart.js');
-                    const updatedCart = await updatedCartResponse.json();
+                    const changeResult = await response.json();
+                    const sections = changeResult.sections;
+                    delete changeResult.sections;
+                    const updatedCart = changeResult;
                     cartData = updatedCart;
                     
                     if (window.Shopify) {
                       window.Shopify.cart = updatedCart;
                     }
-                    
-                    // Multiple UI refresh approaches for maximum compatibility
                     
                     // 1. Standard cart:updated event
                     document.dispatchEvent(new CustomEvent('cart:updated', {
@@ -460,33 +461,24 @@
                       bubbles: true
                     }));
                     
-                    // 2. Shopify cart:change event
-                    document.dispatchEvent(new CustomEvent('cart:change', {
-                      detail: updatedCart,
-                      bubbles: true
-                    }));
+                    // 2. Shopify cart:change — skipped; theme handler expects internal format.
+                    //    The sections DOM update below handles cart drawer refresh instead.
                     
                     // 3. Theme-specific refresh methods
                     if (window.theme?.cart?.refresh) {
                       window.theme.cart.refresh();
                     }
                     
-                    // 4. Dawn theme specific
-                    if (window.CartDrawer?.renderContents) {
-                      window.CartDrawer.renderContents(updatedCart);
-                    }
+                    // 4. Dawn theme — handled by sections DOM update below
                     
                     // 5. Try common cart drawer refresh methods
                     if (window.refreshCartDrawer) {
                       window.refreshCartDrawer();
                     }
                     
-                    // 6. Trigger cart drawer update via sections API
+                    // 6. Update sections from the cart change response
                     try {
-                      const sectionsResponse = await fetch('/cart?sections=cart-drawer,cart-icon-bubble');
-                      if (sectionsResponse.ok) {
-                        const sections = await sectionsResponse.json();
-                        
+                      if (sections) {
                         // Update cart drawer if it exists
                         const cartDrawer = document.querySelector('cart-drawer');
                         if (cartDrawer && sections['cart-drawer']) {
