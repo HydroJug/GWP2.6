@@ -1946,6 +1946,7 @@ export const loader = async ({ request }) => {
       // Close modal with improved error handling and unique function name
       window[closeModalFunctionName] = function(isAutoClose = false) {
         try {
+          cleanupModalAccessibility();
           if (isAutoClose) {
             debugLog('Modal auto-closing after adding gifts, not setting dismissal flag');
           } else {
@@ -2011,6 +2012,67 @@ export const loader = async ({ request }) => {
         }
       };
       
+      // Accessibility: Focus management and keyboard handling for modal
+      let previouslyFocusedElement = null;
+
+      function setupModalAccessibility() {
+        const modal = document.getElementById(GWP_MODAL_ID);
+        if (!modal) return;
+
+        // Save the element that had focus before modal opened
+        previouslyFocusedElement = document.activeElement;
+
+        // Move focus to the close button inside the modal
+        const closeBtn = modal.querySelector('.gwp-modal-close');
+        if (closeBtn) {
+          setTimeout(() => closeBtn.focus(), 100);
+        }
+
+        // Escape key closes the modal
+        function handleKeyDown(e) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            window[closeModalFunctionName](false);
+            return;
+          }
+          // Focus trap: keep Tab cycling within the modal
+          if (e.key === 'Tab') {
+            const focusableEls = modal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+            if (focusableEls.length === 0) return;
+            const firstEl = focusableEls[0];
+            const lastEl = focusableEls[focusableEls.length - 1];
+            if (e.shiftKey) {
+              if (document.activeElement === firstEl) {
+                e.preventDefault();
+                lastEl.focus();
+              }
+            } else {
+              if (document.activeElement === lastEl) {
+                e.preventDefault();
+                firstEl.focus();
+              }
+            }
+          }
+        }
+
+        document.addEventListener('keydown', handleKeyDown);
+
+        // Store cleanup reference on the modal element
+        modal._gwpKeydownHandler = handleKeyDown;
+      }
+
+      function cleanupModalAccessibility() {
+        const modal = document.getElementById(GWP_MODAL_ID);
+        if (modal && modal._gwpKeydownHandler) {
+          document.removeEventListener('keydown', modal._gwpKeydownHandler);
+        }
+        // Restore focus to the element that triggered the modal
+        if (previouslyFocusedElement && previouslyFocusedElement.focus) {
+          setTimeout(() => previouslyFocusedElement.focus(), 100);
+          previouslyFocusedElement = null;
+        }
+      }
+
       // Make progress bar clickable to reopen modal
       function makeProgressBarClickable() {
         try {
@@ -2210,11 +2272,11 @@ export const loader = async ({ request }) => {
           
           // Create modal with loading state
           document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}" role="dialog" aria-modal="true" aria-labelledby="gwp-modal-title">
               <div class="gwp-modal">
                 <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
-                  <h2 class="gwp-modal-title">\${specificTier.name.toUpperCase()} GIFTS 🎁</h2>
+                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()" aria-label="Close free gift selection">&times;</button>
+                  <h2 class="gwp-modal-title" id="gwp-modal-title">\${specificTier.name.toUpperCase()} GIFTS 🎁</h2>
                   <p class="gwp-modal-subtitle">Select your \${specificTier.name} gift. Cannot Be Combined With Other Discounts*</p>
                 </div>
                 <div class="gwp-modal-body">
@@ -2251,6 +2313,7 @@ export const loader = async ({ request }) => {
             });
           }
           
+          setupModalAccessibility();
           debugLog('Specific tier modal HTML created, fetching products...');
           
           try {
@@ -3292,11 +3355,11 @@ export const loader = async ({ request }) => {
         
         // Create modal with loading state
         document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}" role="dialog" aria-modal="true" aria-labelledby="gwp-modal-title">
             <div class="gwp-modal">
               <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
-                <h2 class="gwp-modal-title">CONGRATULATIONS 🎉</h2>
+                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()" aria-label="Close free gift selection">&times;</button>
+                <h2 class="gwp-modal-title" id="gwp-modal-title">CONGRATULATIONS 🎉</h2>
                 <p class="gwp-modal-subtitle">You Earned A Free Gift! Cannot Be Combined With Other Discounts*</p>
               </div>
               <div class="gwp-modal-body">
@@ -3333,6 +3396,7 @@ export const loader = async ({ request }) => {
             });
           }
           
+          setupModalAccessibility();
           debugLog('Modal HTML created, fetching products...');
         
         try {
@@ -3447,11 +3511,11 @@ export const loader = async ({ request }) => {
           
           // Create modal with loading state
           document.body.insertAdjacentHTML('beforeend', \`
-            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}">
+            <div class="gwp-modal-overlay active" id="\${GWP_MODAL_ID}" role="dialog" aria-modal="true" aria-labelledby="gwp-modal-title">
               <div class="gwp-modal">
                 <div class="gwp-modal-header">
-                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()">&times;</button>
-                  <h2 class="gwp-modal-title">YOUR FREE GIFTS 🎁</h2>
+                  <button class="gwp-modal-close" onclick="\${closeModalFunctionName}()" aria-label="Close free gift selection">&times;</button>
+                  <h2 class="gwp-modal-title" id="gwp-modal-title">YOUR FREE GIFTS 🎁</h2>
                   <p class="gwp-modal-subtitle">Manage your gift selections. Cannot Be Combined With Other Discounts*</p>
                 </div>
                 <div class="gwp-modal-body">
@@ -3488,6 +3552,7 @@ export const loader = async ({ request }) => {
             });
           }
           
+          setupModalAccessibility();
           debugLog('Progress bar modal HTML created, fetching products...');
           
           try {

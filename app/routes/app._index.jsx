@@ -20,6 +20,7 @@ import {
   StoreIcon,
   ChartHistogramGrowthIcon,
   LayoutSectionIcon,
+  AlertDiamondIcon,
 } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -85,6 +86,13 @@ const tools = [
     icon: LayoutSectionIcon,
     url: "/app/progress-bar",
     cta: "Configure",
+  },
+  {
+    title: "Free Etch Discount",
+    description: "Waive etch surcharges on cart items when the order reaches a minimum value. Applies automatically to lines with an etchInfo attribute.",
+    icon: AlertDiamondIcon,
+    url: "/app/free-etch",
+    cta: "Manage discounts",
   },
 ];
 

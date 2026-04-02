@@ -224,6 +224,11 @@ export const action = async ({ request, params }) => {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+function nowLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 function buildEmpty() {
   return {
     discountType: ["automatic"],
@@ -232,7 +237,7 @@ function buildEmpty() {
     discountValueType: ["percentage"],
     discountValue: "",
     minimumOrderAmount: "",
-    startDateTime: "",
+    startDateTime: nowLocal(),
     endDateTime: "",
     usageLimit: "",
     appliesOncePerCustomer: false,

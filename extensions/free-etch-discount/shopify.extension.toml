@@ -1,0 +1,16 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "Free Etch Discount"
+handle = "free-etch-discount"
+uid = "84ddb506-6ecf-02b7-47b8-a4cda421d7d245dce2ee"
+type = "function"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"

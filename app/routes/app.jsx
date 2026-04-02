@@ -30,6 +30,7 @@ export default function App() {
         <Link to="/app/pos-only-discount">POS Only Discounts</Link>
         <Link to="/app/buy-more-save-more">Buy More, Save More</Link>
         <Link to="/app/progress-bar">Progress Bar</Link>
+        <Link to="/app/free-etch">Free Etch Discount</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

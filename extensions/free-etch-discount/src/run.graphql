@@ -1,0 +1,30 @@
+query RunInput {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            productType
+          }
+        }
+      }
+      attribute(key: "etchInfo") {
+        key
+        value
+      }
+    }
+  }
+  discount {
+    metafield(namespace: "free_etch", key: "config") {
+      value
+    }
+    discountClasses
+  }
+}
