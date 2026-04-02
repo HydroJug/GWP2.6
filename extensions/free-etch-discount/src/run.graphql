@@ -1,13 +1,13 @@
 query RunInput {
   cart {
-    cost {
-      subtotalAmount {
-        amount
-      }
-    }
     lines {
       id
       quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
       merchandise {
         ... on ProductVariant {
           product {

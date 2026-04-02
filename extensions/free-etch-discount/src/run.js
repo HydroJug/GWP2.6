@@ -51,12 +51,27 @@ export function run(input) {
     return { operations: [] };
   }
 
-  // Check order minimum against cart subtotal
-  const subtotal = parseFloat(input.cart.cost.subtotalAmount.amount) * 100;
-  console.log(`[FreeEtch] Subtotal: ${subtotal} cents, minimum: ${orderMinimumCents} cents`);
+  // Check order minimum against the base merchandise subtotal only.
+  // Cart transforms run before discount functions, so cost.amountPerQuantity
+  // on etched lines already includes the surcharge. Subtract it back out so
+  // the etch fee itself never counts toward the minimum.
+  let baseSubtotalCents = 0;
+  for (const line of lines) {
+    const pricePerUnit = parseFloat(line.cost.amountPerQuantity.amount) * 100;
+    const etchValue = line.attribute?.value?.trim();
+    if (etchValue) {
+      const etchInfo = parseRubyHash(etchValue);
+      const isCustomUpload = etchInfo?.designType === 'custom-upload';
+      const surcharge = isCustomUpload ? CUSTOM_UPLOAD_SURCHARGE : DEFAULT_SURCHARGE;
+      baseSubtotalCents += (pricePerUnit - surcharge * 100) * line.quantity;
+    } else {
+      baseSubtotalCents += pricePerUnit * line.quantity;
+    }
+  }
+  console.log(`[FreeEtch] Base subtotal: ${baseSubtotalCents} cents, minimum: ${orderMinimumCents} cents`);
 
-  if (subtotal < orderMinimumCents) {
-    console.log('[FreeEtch] Subtotal below minimum — no discount');
+  if (baseSubtotalCents < orderMinimumCents) {
+    console.log('[FreeEtch] Base subtotal below minimum — no discount');
     return { operations: [] };
   }
 
