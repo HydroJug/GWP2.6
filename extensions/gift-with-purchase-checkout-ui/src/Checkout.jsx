@@ -144,8 +144,6 @@ function Extension() {
 
         if (Array.isArray(tiers) && tiers.length > 0) {
           setAvailableTiers(tiers);
-        } else {
-          throw new Error('No tier configuration found');
         }
       } catch (error) {
         setConfigError(error.message || 'Failed to load configuration');

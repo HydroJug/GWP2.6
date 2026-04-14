@@ -71,22 +71,32 @@ export function cartLinesDiscountsGenerateRun(input) {
 
     if (!qualifyingLines.length) return { operations: [] };
 
-    const candidates = qualifyingLines.map((line) => ({
-      message:
-        discountValueType === 'percentage'
-          ? `${parsedValue}% off`
-          : `$${parsedValue.toFixed(2)} off`,
-      targets: [{ cartLine: { id: line.id } }],
-      value:
-        discountValueType === 'percentage'
-          ? { percentage: { value: parsedValue } }
-          : {
-              fixedAmount: {
-                amount: parsedValue.toFixed(2),
-                appliesToEachItem: true,
+    // Limit how many items get the discount if maxApplicationsPerOrder is set
+    const maxApps = config.maxApplicationsPerOrder ? parseInt(config.maxApplicationsPerOrder, 10) : 0;
+    const candidates = [];
+    let remaining = maxApps || Infinity;
+
+    for (const line of qualifyingLines) {
+      if (remaining <= 0) break;
+      const qty = maxApps ? Math.min(line.quantity, remaining) : null;
+      candidates.push({
+        message:
+          discountValueType === 'percentage'
+            ? `${parsedValue}% off`
+            : `$${parsedValue.toFixed(2)} off`,
+        targets: [{ cartLine: { id: line.id, ...(qty !== null ? { quantity: qty } : {}) } }],
+        value:
+          discountValueType === 'percentage'
+            ? { percentage: { value: parsedValue } }
+            : {
+                fixedAmount: {
+                  amount: parsedValue.toFixed(2),
+                  appliesToEachItem: true,
+                },
               },
-            },
-    }));
+      });
+      if (maxApps) remaining -= (qty ?? line.quantity);
+    }
 
     return {
       operations: [
@@ -104,7 +114,7 @@ export function cartLinesDiscountsGenerateRun(input) {
   const value =
     discountValueType === 'percentage'
       ? { percentage: { value: parsedValue } }
-      : { fixedAmount: { amount: parsedValue.toFixed(2), appliesToEachItem: false } };
+      : { fixedAmount: { amount: parsedValue.toFixed(2) } };
 
   const message =
     discountValueType === 'percentage'

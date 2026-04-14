@@ -121,6 +121,7 @@ export const loader = async ({ request, params }) => {
       appliesTo: config.appliesTo ?? "all",
       selectedProducts: config.selectedProducts ?? [],
       selectedCollections: config.selectedCollections ?? [],
+      maxApplicationsPerOrder: config.maxApplicationsPerOrder ?? "",
       customerEligibility: config.customerEligibility ?? "all",
       selectedCustomers: config.selectedCustomers ?? [],
       selectedSegments: config.selectedSegments ?? [],
@@ -154,6 +155,7 @@ export const action = async ({ request, params }) => {
   const appliesTo = formData.get("appliesTo") ?? "all";
   const selectedProducts = JSON.parse(formData.get("selectedProducts") || "[]");
   const selectedCollections = JSON.parse(formData.get("selectedCollections") || "[]");
+  const maxApplicationsPerOrder = formData.get("maxApplicationsPerOrder") || "";
   const customerEligibility = formData.get("customerEligibility") ?? "all";
   const selectedCustomers = JSON.parse(formData.get("selectedCustomers") || "[]");
   const selectedSegments = JSON.parse(formData.get("selectedSegments") || "[]");
@@ -176,6 +178,7 @@ export const action = async ({ request, params }) => {
     selectedProducts,
     collectionIds: selectedCollections.map((c) => c.id),
     selectedCollections,
+    maxApplicationsPerOrder: maxApplicationsPerOrder || null,
     customerEligibility,
     customerIds: selectedCustomers.map((c) => c.id),
     selectedCustomers,
@@ -183,7 +186,9 @@ export const action = async ({ request, params }) => {
     selectedSegments,
   };
 
-  // For segments, resolve current members to customer IDs so the function can check
+  // For segments, resolve current members to customer GIDs so the function can check.
+  // We use customerSegmentMembers and convert the returned IDs to Customer GIDs,
+  // since the member ID numeric portion matches the Customer ID.
   if (customerEligibility === "specific_segments" && selectedSegments.length > 0) {
     const segmentCustomerIds = [];
     for (const seg of selectedSegments) {
@@ -197,12 +202,22 @@ export const action = async ({ request, params }) => {
           { variables: { segmentId: seg.id } }
         );
         const segData = await segRes.json();
+        console.log(`[CombinedDiscount] Segment ${seg.id} response:`, JSON.stringify(segData.data?.customerSegmentMembers?.edges?.slice(0, 2)));
+        if (segData.errors) {
+          console.log(`[CombinedDiscount] Segment GraphQL errors:`, JSON.stringify(segData.errors));
+        }
         const members = segData.data?.customerSegmentMembers?.edges ?? [];
-        segmentCustomerIds.push(...members.map((e) => e.node.id));
+        for (const edge of members) {
+          const memberId = edge.node.id;
+          // Convert gid://shopify/CustomerSegmentMember/X to gid://shopify/Customer/X
+          const numericId = memberId.split("/").pop();
+          segmentCustomerIds.push(`gid://shopify/Customer/${numericId}`);
+        }
       } catch (e) {
         console.log(`[CombinedDiscount] Failed to resolve segment ${seg.id}:`, e.message);
       }
     }
+    console.log(`[CombinedDiscount] Resolved ${segmentCustomerIds.length} customer IDs from segments`);
     config.customerIds = [...new Set(segmentCustomerIds)];
   }
 
@@ -349,6 +364,7 @@ function buildEmpty() {
     appliesTo: ["all"],
     selectedProducts: [],
     selectedCollections: [],
+    maxApplicationsPerOrder: "",
     customerEligibility: ["all"],
     selectedCustomers: [],
     selectedSegments: [],
@@ -374,6 +390,7 @@ function buildFromDiscount(d) {
     appliesTo: [d.appliesTo || "all"],
     selectedProducts: d.selectedProducts || [],
     selectedCollections: d.selectedCollections || [],
+    maxApplicationsPerOrder: d.maxApplicationsPerOrder ?? "",
     customerEligibility: [d.customerEligibility || "all"],
     selectedCustomers: d.selectedCustomers || [],
     selectedSegments: d.selectedSegments || [],
@@ -723,6 +740,7 @@ export default function CombinedDiscountForm() {
     data.append("appliesTo", form.appliesTo[0]);
     data.append("selectedProducts", JSON.stringify(form.selectedProducts));
     data.append("selectedCollections", JSON.stringify(form.selectedCollections));
+    data.append("maxApplicationsPerOrder", form.maxApplicationsPerOrder);
     data.append("customerEligibility", form.customerEligibility[0]);
     data.append("selectedCustomers", JSON.stringify(form.selectedCustomers));
     data.append("selectedSegments", JSON.stringify(form.selectedSegments));
@@ -851,6 +869,15 @@ export default function CombinedDiscountForm() {
                         )}
                       </BlockStack>
                     )}
+                    <TextField
+                      label="Max items discounted per order (optional)"
+                      type="number"
+                      value={form.maxApplicationsPerOrder}
+                      onChange={(v) => set("maxApplicationsPerOrder", v)}
+                      min={1}
+                      helpText="Leave empty to discount all qualifying items."
+                      autoComplete="off"
+                    />
                   </BlockStack>
                 )}
               </BlockStack>

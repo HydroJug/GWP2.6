@@ -20,6 +20,7 @@ import {
   statusBadgeTone,
   formatDate,
 } from "../utils/discountList";
+import { useDiscountAnalytics, AnalyticsCells, analyticsHeadings } from "../components/DiscountAnalytics";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -45,6 +46,7 @@ export default function BuyMoreSaveMoreList() {
   const { functionId, discounts } = useLoaderData();
   const navigate = useNavigate();
   const goToCreate = useCallback(() => navigate("/app/buy-more-save-more/new"), [navigate]);
+  const analytics = useDiscountAnalytics(discounts);
 
   const rowMarkup = discounts.map((d, i) => (
     <IndexTable.Row
@@ -70,7 +72,7 @@ export default function BuyMoreSaveMoreList() {
         </Badge>
       </IndexTable.Cell>
       <IndexTable.Cell>{formatDate(d.startsAt)}</IndexTable.Cell>
-      <IndexTable.Cell>{formatDate(d.endsAt)}</IndexTable.Cell>
+      <AnalyticsCells data={analytics[d.id]} />
     </IndexTable.Row>
   ));
 
@@ -119,7 +121,7 @@ export default function BuyMoreSaveMoreList() {
                   { title: "Code" },
                   { title: "Status" },
                   { title: "Starts" },
-                  { title: "Ends" },
+                  ...analyticsHeadings,
                 ]}
               >
                 {rowMarkup}

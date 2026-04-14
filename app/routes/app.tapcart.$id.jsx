@@ -185,7 +185,9 @@ export const action = async ({ request, params }) => {
         const members = data.data?.customerSegmentMembers;
         if (members?.edges) {
           for (const edge of members.edges) {
-            resolvedIds.push(edge.node.id);
+            // Convert gid://shopify/CustomerSegmentMember/X to gid://shopify/Customer/X
+            const numericId = edge.node.id.split("/").pop();
+            resolvedIds.push(`gid://shopify/Customer/${numericId}`);
           }
         }
         hasNext = members?.pageInfo?.hasNextPage ?? false;
