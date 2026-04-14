@@ -4,6 +4,9 @@
  * Applies a percentage or fixed-amount discount only when the cart
  * has a specific attribute indicating a Point of Sale transaction.
  * The attribute key and value are configurable (default: channel=pos).
+ *
+ * Supports order-level or product-level discounts, optionally filtered
+ * by specific products or collections.
  */
 export function run(input) {
   const metafieldValue = input.discount?.metafield?.value;
@@ -22,6 +25,9 @@ export function run(input) {
     minimumOrderAmount,
     channelKey = "channel",
     channelValue = "pos",
+    discountScope = "order",
+    appliesTo = "all",
+    productIds,
   } = config;
 
   if (!discountValue || parseFloat(discountValue) <= 0) {
@@ -47,6 +53,56 @@ export function run(input) {
 
   const parsedValue = parseFloat(discountValue);
 
+  // ── Product-level discount ────────────────────────────────────────────────
+  if (discountScope === "product") {
+    const lines = input.cart.lines ?? [];
+    let qualifyingLines;
+
+    if (appliesTo === "products" && productIds?.length) {
+      qualifyingLines = lines.filter((line) => {
+        const productId = line.merchandise?.product?.id;
+        return productId && productIds.includes(productId);
+      });
+    } else if (appliesTo === "collections") {
+      qualifyingLines = lines.filter(
+        (line) => line.merchandise?.product?.inAnyCollection === true
+      );
+    } else {
+      qualifyingLines = lines;
+    }
+
+    if (!qualifyingLines.length) return { operations: [] };
+
+    const candidates = qualifyingLines.map((line) => ({
+      message:
+        discountValueType === "percentage"
+          ? `${parsedValue}% off (POS)`
+          : `$${parsedValue.toFixed(2)} off (POS)`,
+      targets: [{ cartLine: { id: line.id } }],
+      value:
+        discountValueType === "percentage"
+          ? { percentage: { value: parsedValue } }
+          : {
+              fixedAmount: {
+                amount: parsedValue.toFixed(2),
+                appliesToEachItem: true,
+              },
+            },
+    }));
+
+    return {
+      operations: [
+        {
+          productDiscountsAdd: {
+            candidates,
+            selectionStrategy: "ALL",
+          },
+        },
+      ],
+    };
+  }
+
+  // ── Order-level discount (default) ────────────────────────────────────────
   const value =
     discountValueType === "percentage"
       ? { percentage: { value: parsedValue } }

@@ -16,6 +16,11 @@ query DeliveryInput {
         }
       }
     }
+    buyerIdentity {
+      customer {
+        id
+      }
+    }
   }
   discount {
     discountClasses

@@ -27,6 +27,14 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
   // Only apply free shipping if the config enables it
   if (!config.includesFreeShipping) return { operations: [] };
 
+  // ── Customer eligibility ──────────────────────────────────────────────────
+  if ((config.customerEligibility === 'specific_customers' || config.customerEligibility === 'specific_segments') && config.customerIds?.length) {
+    const customerId = input.cart.buyerIdentity?.customer?.id;
+    if (!customerId || !config.customerIds.includes(customerId)) {
+      return { operations: [] };
+    }
+  }
+
   // Enforce minimum order subtotal for free shipping
   const freeShippingMin = config.freeShippingMinimum || config.minimumOrderAmount;
   if (freeShippingMin && parseFloat(freeShippingMin) > 0) {

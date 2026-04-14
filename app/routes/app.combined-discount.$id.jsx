@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -16,7 +16,17 @@ import {
   Box,
   ChoiceList,
   Checkbox,
+  Tag,
+  Spinner,
+  Avatar,
+  ResourceList,
+  ResourceItem,
+  Thumbnail,
+  Icon,
+  Modal,
+  Badge,
 } from "@shopify/polaris";
+import { ImageIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import DateTimePicker from "../components/DateTimePicker";
 
@@ -107,6 +117,13 @@ export const loader = async ({ request, params }) => {
       includesFreeShipping: config.includesFreeShipping ?? false,
       freeShippingMinimum: config.freeShippingMinimum ?? "",
       maxShippingCost: config.maxShippingCost ?? "",
+      discountScope: config.discountScope ?? "order",
+      appliesTo: config.appliesTo ?? "all",
+      selectedProducts: config.selectedProducts ?? [],
+      selectedCollections: config.selectedCollections ?? [],
+      customerEligibility: config.customerEligibility ?? "all",
+      selectedCustomers: config.selectedCustomers ?? [],
+      selectedSegments: config.selectedSegments ?? [],
     },
   });
 };
@@ -133,6 +150,13 @@ export const action = async ({ request, params }) => {
   const freeShippingMinimum = formData.get("freeShippingMinimum");
   const maxShippingCost = formData.get("maxShippingCost");
   const functionId = formData.get("functionId");
+  const discountScope = formData.get("discountScope") ?? "order";
+  const appliesTo = formData.get("appliesTo") ?? "all";
+  const selectedProducts = JSON.parse(formData.get("selectedProducts") || "[]");
+  const selectedCollections = JSON.parse(formData.get("selectedCollections") || "[]");
+  const customerEligibility = formData.get("customerEligibility") ?? "all";
+  const selectedCustomers = JSON.parse(formData.get("selectedCustomers") || "[]");
+  const selectedSegments = JSON.parse(formData.get("selectedSegments") || "[]");
 
   if (!functionId) return json({ error: "Combined Discount function is not deployed yet." });
 
@@ -146,16 +170,68 @@ export const action = async ({ request, params }) => {
     includesFreeShipping,
     freeShippingMinimum: freeShippingMinimum || null,
     maxShippingCost: maxShippingCost || null,
+    discountScope,
+    appliesTo,
+    productIds: selectedProducts.map((p) => p.id),
+    selectedProducts,
+    collectionIds: selectedCollections.map((c) => c.id),
+    selectedCollections,
+    customerEligibility,
+    customerIds: selectedCustomers.map((c) => c.id),
+    selectedCustomers,
+    segmentIds: selectedSegments.map((s) => s.id),
+    selectedSegments,
   };
 
-  const metafields = [{ namespace: "combined_discount", key: "config", type: "json", value: JSON.stringify(config) }];
-  const discountClasses = ["ORDER", "SHIPPING"];
+  // For segments, resolve current members to customer IDs so the function can check
+  if (customerEligibility === "specific_segments" && selectedSegments.length > 0) {
+    const segmentCustomerIds = [];
+    for (const seg of selectedSegments) {
+      try {
+        const segRes = await admin.graphql(
+          `query($segmentId: ID!) {
+            customerSegmentMembers(first: 250, segmentId: $segmentId) {
+              edges { node { id } }
+            }
+          }`,
+          { variables: { segmentId: seg.id } }
+        );
+        const segData = await segRes.json();
+        const members = segData.data?.customerSegmentMembers?.edges ?? [];
+        segmentCustomerIds.push(...members.map((e) => e.node.id));
+      } catch (e) {
+        console.log(`[CombinedDiscount] Failed to resolve segment ${seg.id}:`, e.message);
+      }
+    }
+    config.customerIds = [...new Set(segmentCustomerIds)];
+  }
+
+  // Input variables for the function's GraphQL query (collection IDs for inAnyCollection)
+  const variables = {
+    collectionIds: appliesTo === "collections" ? selectedCollections.map((c) => c.id) : [],
+  };
+
+  const configMetafield = { namespace: "combined_discount", key: "config", type: "json", value: JSON.stringify(config) };
+  const variablesMetafield = { namespace: "combined_discount", key: "variables", type: "json", value: JSON.stringify(variables) };
+
+  // Determine discount classes based on scope
+  const discountClasses = [];
+  if (discountScope === "product") {
+    discountClasses.push("PRODUCT");
+  } else {
+    discountClasses.push("ORDER");
+  }
+  if (includesFreeShipping) {
+    discountClasses.push("SHIPPING");
+  }
+
+  const metafields = [configMetafield];
 
   try {
-    let response;
+    let createdDiscountId;
     if (!isNew && discountId) {
       if (discountType === "automatic") {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($id: ID!, $d: DiscountAutomaticAppInput!) {
             discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $d) {
               automaticAppDiscount { discountId }
@@ -168,8 +244,9 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppUpdate?.automaticAppDiscount?.discountId;
       } else {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($id: ID!, $d: DiscountCodeAppInput!) {
             discountCodeAppUpdate(id: $id, codeAppDiscount: $d) {
               codeAppDiscount { discountId }
@@ -182,10 +259,11 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppUpdate?.codeAppDiscount?.discountId;
       }
     } else {
       if (discountType === "automatic") {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($d: DiscountAutomaticAppInput!) {
             discountAutomaticAppCreate(automaticAppDiscount: $d) {
               automaticAppDiscount { discountId }
@@ -198,8 +276,9 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppCreate?.automaticAppDiscount?.discountId;
       } else {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($d: DiscountCodeAppInput!) {
             discountCodeAppCreate(codeAppDiscount: $d) {
               codeAppDiscount { discountId }
@@ -212,8 +291,32 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppCreate?.codeAppDiscount?.discountId;
       }
     }
+
+    // Save the variables metafield on the discount node
+    if (createdDiscountId) {
+      const nodeId = createdDiscountId
+        .replace("DiscountAutomaticApp", "DiscountAutomaticNode")
+        .replace("DiscountCodeApp", "DiscountCodeNode");
+      await admin.graphql(
+        `mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields { namespace key }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            metafields: [
+              { ownerId: nodeId, ...variablesMetafield },
+            ],
+          },
+        }
+      );
+    }
+
     return json({ success: true });
   } catch (err) {
     return json({ error: err.message });
@@ -228,7 +331,28 @@ function nowLocal() {
 }
 
 function buildEmpty() {
-  return { discountType: ["code"], code: "", title: "", discountValueType: ["percentage"], discountValue: "", minimumOrderAmount: "", startDateTime: nowLocal(), endDateTime: "", usageLimit: "", appliesOncePerCustomer: false, includesFreeShipping: false, freeShippingMinimum: "", maxShippingCost: "" };
+  return {
+    discountType: ["code"],
+    code: "",
+    title: "",
+    discountValueType: ["percentage"],
+    discountValue: "",
+    minimumOrderAmount: "",
+    startDateTime: nowLocal(),
+    endDateTime: "",
+    usageLimit: "",
+    appliesOncePerCustomer: false,
+    includesFreeShipping: false,
+    freeShippingMinimum: "",
+    maxShippingCost: "",
+    discountScope: ["order"],
+    appliesTo: ["all"],
+    selectedProducts: [],
+    selectedCollections: [],
+    customerEligibility: ["all"],
+    selectedCustomers: [],
+    selectedSegments: [],
+  };
 }
 
 function buildFromDiscount(d) {
@@ -246,8 +370,241 @@ function buildFromDiscount(d) {
     includesFreeShipping: d.includesFreeShipping,
     freeShippingMinimum: d.freeShippingMinimum || "",
     maxShippingCost: d.maxShippingCost || "",
+    discountScope: [d.discountScope || "order"],
+    appliesTo: [d.appliesTo || "all"],
+    selectedProducts: d.selectedProducts || [],
+    selectedCollections: d.selectedCollections || [],
+    customerEligibility: [d.customerEligibility || "all"],
+    selectedCustomers: d.selectedCustomers || [],
+    selectedSegments: d.selectedSegments || [],
   };
 }
+
+// ── Customer search hook ────────────────────────────────────────────────────
+
+function useCustomerSearch() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); return; }
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/search-customers?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        setResults(data.customers ?? []);
+      } catch {
+        setResults([]);
+      }
+      setLoading(false);
+    }, 300);
+    return () => clearTimeout(timerRef.current);
+  }, [query]);
+
+  return { query, setQuery, results, loading };
+}
+
+function useSegmentSearch() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (query.length < 1) { setResults([]); return; }
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/search-segments?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        setResults(data.segments ?? []);
+      } catch {
+        setResults([]);
+      }
+      setLoading(false);
+    }, 300);
+    return () => clearTimeout(timerRef.current);
+  }, [query]);
+
+  return { query, setQuery, results, loading };
+}
+
+// ── Customer eligibility card (modal-based pickers) ─────────────────────────
+
+function CustomerEligibilityCard({ form, set, customerSearch, segmentSearch, addCustomer, removeCustomer }) {
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
+
+  return (
+    <Card>
+      <BlockStack gap="400">
+        <Text as="h2" variant="headingMd">Customer eligibility</Text>
+        <ChoiceList
+          title="Who can use this discount"
+          choices={[
+            { label: "All customers", value: "all" },
+            { label: "Specific customer segments", value: "specific_segments" },
+            { label: "Specific customers", value: "specific_customers" },
+          ]}
+          selected={form.customerEligibility}
+          onChange={(v) => set("customerEligibility", v)}
+        />
+
+        {form.customerEligibility[0] === "specific_segments" && (
+          <BlockStack gap="300">
+            <Button onClick={() => { segmentSearch.setQuery(""); setSegmentModalOpen(true); }}>
+              {form.selectedSegments.length ? "Edit segments" : "Browse segments"}
+            </Button>
+            {form.selectedSegments.length > 0 && (
+              <InlineStack gap="200" wrap>
+                {form.selectedSegments.map((s) => (
+                  <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
+                    {s.name}
+                  </Tag>
+                ))}
+              </InlineStack>
+            )}
+            <Banner tone="info">
+              <p>Customer IDs are resolved from segments when you save. Re-save to pick up membership changes.</p>
+            </Banner>
+
+            <Modal
+              open={segmentModalOpen}
+              onClose={() => setSegmentModalOpen(false)}
+              title="Select customer segments"
+              primaryAction={{ content: "Done", onAction: () => setSegmentModalOpen(false) }}
+            >
+              <Modal.Section>
+                <BlockStack gap="400">
+                  <TextField
+                    label="Search segments"
+                    value={segmentSearch.query}
+                    onChange={segmentSearch.setQuery}
+                    placeholder="Search by segment name"
+                    autoComplete="off"
+                    suffix={segmentSearch.loading ? <Spinner size="small" /> : null}
+                  />
+                  {segmentSearch.results.length > 0 && (
+                    <BlockStack gap="100">
+                      {segmentSearch.results.map((s) => {
+                        const alreadySelected = form.selectedSegments.some((x) => x.id === s.id);
+                        return (
+                          <Button
+                            key={s.id}
+                            variant="plain"
+                            textAlign="left"
+                            disabled={alreadySelected}
+                            onClick={() => {
+                              set("selectedSegments", [...form.selectedSegments, { id: s.id, name: s.name }]);
+                            }}
+                          >
+                            {s.name}{alreadySelected ? " (added)" : ""}
+                          </Button>
+                        );
+                      })}
+                    </BlockStack>
+                  )}
+                  {form.selectedSegments.length > 0 && (
+                    <>
+                      <Text variant="headingSm">Selected</Text>
+                      <InlineStack gap="200" wrap>
+                        {form.selectedSegments.map((s) => (
+                          <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
+                            {s.name}
+                          </Tag>
+                        ))}
+                      </InlineStack>
+                    </>
+                  )}
+                </BlockStack>
+              </Modal.Section>
+            </Modal>
+          </BlockStack>
+        )}
+
+        {form.customerEligibility[0] === "specific_customers" && (
+          <BlockStack gap="300">
+            <Button onClick={() => { customerSearch.setQuery(""); setCustomerModalOpen(true); }}>
+              {form.selectedCustomers.length ? "Edit customers" : "Browse customers"}
+            </Button>
+            {form.selectedCustomers.length > 0 && (
+              <InlineStack gap="200" wrap>
+                {form.selectedCustomers.map((c) => (
+                  <Tag key={c.id} onRemove={() => removeCustomer(c.id)}>
+                    {c.displayName}{c.email ? ` (${c.email})` : ""}
+                  </Tag>
+                ))}
+              </InlineStack>
+            )}
+
+            <Modal
+              open={customerModalOpen}
+              onClose={() => setCustomerModalOpen(false)}
+              title="Select customers"
+              primaryAction={{ content: "Done", onAction: () => setCustomerModalOpen(false) }}
+            >
+              <Modal.Section>
+                <BlockStack gap="400">
+                  <TextField
+                    label="Search customers"
+                    value={customerSearch.query}
+                    onChange={customerSearch.setQuery}
+                    placeholder="Search by name or email"
+                    autoComplete="off"
+                    suffix={customerSearch.loading ? <Spinner size="small" /> : null}
+                  />
+                  {customerSearch.results.length > 0 && (
+                    <ResourceList
+                      resourceName={{ singular: "customer", plural: "customers" }}
+                      items={customerSearch.results}
+                      renderItem={(c) => {
+                        const alreadySelected = form.selectedCustomers.some((x) => x.id === c.id);
+                        return (
+                          <ResourceItem
+                            id={c.id}
+                            media={<Avatar size="sm" name={c.displayName} />}
+                            onClick={() => {
+                              if (!alreadySelected) addCustomer(c);
+                            }}
+                          >
+                            <InlineStack gap="200" blockAlign="center">
+                              <Text variant="bodyMd" fontWeight="semibold">{c.displayName}</Text>
+                              {c.email && <Text variant="bodySm" tone="subdued">{c.email}</Text>}
+                              {alreadySelected && <Badge tone="success">Added</Badge>}
+                            </InlineStack>
+                          </ResourceItem>
+                        );
+                      }}
+                    />
+                  )}
+                  {form.selectedCustomers.length > 0 && (
+                    <>
+                      <Text variant="headingSm">Selected</Text>
+                      <InlineStack gap="200" wrap>
+                        {form.selectedCustomers.map((c) => (
+                          <Tag key={c.id} onRemove={() => removeCustomer(c.id)}>
+                            {c.displayName}{c.email ? ` (${c.email})` : ""}
+                          </Tag>
+                        ))}
+                      </InlineStack>
+                    </>
+                  )}
+                </BlockStack>
+              </Modal.Section>
+            </Modal>
+          </BlockStack>
+        )}
+      </BlockStack>
+    </Card>
+  );
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CombinedDiscountForm() {
   const { functionId, discount, isNew, notFound } = useLoaderData();
@@ -258,6 +615,8 @@ export default function CombinedDiscountForm() {
   const [form, setForm] = useState(() => isEditing ? buildFromDiscount(discount) : buildEmpty());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const set = useCallback((k, v) => setForm((f) => ({ ...f, [k]: v })), []);
+  const customerSearch = useCustomerSearch();
+  const segmentSearch = useSegmentSearch();
 
   useEffect(() => {
     if (!fetcher.data) return;
@@ -270,6 +629,73 @@ export default function CombinedDiscountForm() {
       setIsSubmitting(false);
     }
   }, [fetcher.data, shopify, isEditing]);
+
+  // ── Resource pickers ────────────────────────────────────────────────────
+
+  const openProductPicker = useCallback(async () => {
+    const selected = await shopify.resourcePicker({
+      type: "product",
+      multiple: true,
+      selectionIds: form.selectedProducts.map((p) => ({ id: p.id })),
+    });
+    if (selected) {
+      set(
+        "selectedProducts",
+        selected.map((p) => ({
+          id: p.id,
+          title: p.title,
+          image: p.images?.[0]?.originalSrc ?? null,
+        }))
+      );
+    }
+  }, [shopify, form.selectedProducts, set]);
+
+  const openCollectionPicker = useCallback(async () => {
+    const selected = await shopify.resourcePicker({
+      type: "collection",
+      multiple: true,
+      selectionIds: form.selectedCollections.map((c) => ({ id: c.id })),
+    });
+    if (selected) {
+      set(
+        "selectedCollections",
+        selected.map((c) => ({
+          id: c.id,
+          title: c.title,
+          image: c.image?.originalSrc ?? null,
+        }))
+      );
+    }
+  }, [shopify, form.selectedCollections, set]);
+
+  const addCustomer = useCallback(
+    (customer) => {
+      if (form.selectedCustomers.some((c) => c.id === customer.id)) return;
+      set("selectedCustomers", [
+        ...form.selectedCustomers,
+        { id: customer.id, displayName: customer.displayName, email: customer.email },
+      ]);
+      customerSearch.setQuery("");
+    },
+    [form.selectedCustomers, set, customerSearch]
+  );
+
+  const removeCustomer = useCallback(
+    (id) => set("selectedCustomers", form.selectedCustomers.filter((c) => c.id !== id)),
+    [form.selectedCustomers, set]
+  );
+
+  const removeProduct = useCallback(
+    (id) => set("selectedProducts", form.selectedProducts.filter((p) => p.id !== id)),
+    [form.selectedProducts, set]
+  );
+
+  const removeCollection = useCallback(
+    (id) => set("selectedCollections", form.selectedCollections.filter((c) => c.id !== id)),
+    [form.selectedCollections, set]
+  );
+
+  // ── Submit ──────────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(() => {
     if (form.discountType[0] === "code" && !form.code.trim()) { shopify.toast.show("Discount code is required.", { isError: true }); return; }
@@ -293,6 +719,13 @@ export default function CombinedDiscountForm() {
     data.append("freeShippingMinimum", form.freeShippingMinimum);
     data.append("maxShippingCost", form.maxShippingCost);
     data.append("functionId", functionId ?? "");
+    data.append("discountScope", form.discountScope[0]);
+    data.append("appliesTo", form.appliesTo[0]);
+    data.append("selectedProducts", JSON.stringify(form.selectedProducts));
+    data.append("selectedCollections", JSON.stringify(form.selectedCollections));
+    data.append("customerEligibility", form.customerEligibility[0]);
+    data.append("selectedCustomers", JSON.stringify(form.selectedCustomers));
+    data.append("selectedSegments", JSON.stringify(form.selectedSegments));
     fetcher.submit(data, { method: "POST" });
   }, [form, fetcher, functionId, shopify, isEditing, discount]);
 
@@ -304,6 +737,7 @@ export default function CombinedDiscountForm() {
 
   const valueLabel = form.discountValueType[0] === "percentage" ? "Percentage off (%)" : "Fixed amount off ($)";
   const pageTitle = isEditing ? "Edit discount" : "Create discount";
+  const isProductScope = form.discountScope[0] === "product";
 
   return (
     <Page backAction={{ content: "All discounts", url: "/app/combined-discount" }} title={pageTitle}>
@@ -321,6 +755,7 @@ export default function CombinedDiscountForm() {
         <Layout.Section>
           <BlockStack gap="500">
 
+            {/* ── Discount details ── */}
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Discount details</Text>
@@ -332,6 +767,7 @@ export default function CombinedDiscountForm() {
               </BlockStack>
             </Card>
 
+            {/* ── Discount value ── */}
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Discount value</Text>
@@ -343,6 +779,94 @@ export default function CombinedDiscountForm() {
               </BlockStack>
             </Card>
 
+            {/* ── Discount scope ── */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Applies to</Text>
+                <ChoiceList
+                  title="Discount scope"
+                  choices={[
+                    { label: "Entire order", value: "order" },
+                    { label: "Specific products", value: "product" },
+                  ]}
+                  selected={form.discountScope}
+                  onChange={(v) => {
+                    set("discountScope", v);
+                    if (v[0] === "order") set("appliesTo", ["all"]);
+                  }}
+                />
+                {isProductScope && (
+                  <BlockStack gap="400">
+                    <ChoiceList
+                      title="Product selection"
+                      choices={[
+                        { label: "All products", value: "all" },
+                        { label: "Specific collections", value: "collections" },
+                        { label: "Specific products", value: "products" },
+                      ]}
+                      selected={form.appliesTo}
+                      onChange={(v) => set("appliesTo", v)}
+                    />
+
+                    {form.appliesTo[0] === "collections" && (
+                      <BlockStack gap="300">
+                        <Button onClick={openCollectionPicker}>
+                          {form.selectedCollections.length ? "Edit collections" : "Browse collections"}
+                        </Button>
+                        {form.selectedCollections.length > 0 && (
+                          <InlineStack gap="200" wrap>
+                            {form.selectedCollections.map((c) => (
+                              <Tag key={c.id} onRemove={() => removeCollection(c.id)}>{c.title}</Tag>
+                            ))}
+                          </InlineStack>
+                        )}
+                      </BlockStack>
+                    )}
+
+                    {form.appliesTo[0] === "products" && (
+                      <BlockStack gap="300">
+                        <Button onClick={openProductPicker}>
+                          {form.selectedProducts.length ? "Edit products" : "Browse products"}
+                        </Button>
+                        {form.selectedProducts.length > 0 && (
+                          <ResourceList
+                            resourceName={{ singular: "product", plural: "products" }}
+                            items={form.selectedProducts}
+                            renderItem={(item) => (
+                              <ResourceItem
+                                id={item.id}
+                                media={
+                                  <Thumbnail
+                                    source={item.image || ImageIcon}
+                                    alt={item.title}
+                                    size="small"
+                                  />
+                                }
+                                shortcutActions={[{ content: "Remove", onAction: () => removeProduct(item.id) }]}
+                              >
+                                <Text variant="bodyMd" fontWeight="semibold">{item.title}</Text>
+                              </ResourceItem>
+                            )}
+                          />
+                        )}
+                      </BlockStack>
+                    )}
+                  </BlockStack>
+                )}
+              </BlockStack>
+            </Card>
+
+            {/* ── Customer eligibility ── */}
+            <CustomerEligibilityCard
+              form={form}
+              set={set}
+              customerSearch={customerSearch}
+              segmentSearch={segmentSearch}
+              addCustomer={addCustomer}
+              removeCustomer={removeCustomer}
+            />
+
+            {/* ── Free shipping ── */}
             <Card>
               <BlockStack gap="400">
                 <BlockStack gap="100">
@@ -359,6 +883,7 @@ export default function CombinedDiscountForm() {
               </BlockStack>
             </Card>
 
+            {/* ── Schedule ── */}
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Schedule</Text>
@@ -369,6 +894,7 @@ export default function CombinedDiscountForm() {
               </BlockStack>
             </Card>
 
+            {/* ── Usage limits (code only) ── */}
             {form.discountType[0] === "code" && (
               <Card>
                 <BlockStack gap="400">

@@ -15,7 +15,12 @@ import {
   Button,
   Box,
   ChoiceList,
+  Tag,
+  ResourceList,
+  ResourceItem,
+  Thumbnail,
 } from "@shopify/polaris";
+import { ImageIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import DateTimePicker from "../components/DateTimePicker";
 
@@ -111,6 +116,10 @@ export const loader = async ({ request, params }) => {
       minimumOrderAmount: config.minimumOrderAmount ?? "",
       channelKey: config.channelKey ?? "channel",
       channelValue: config.channelValue ?? "pos",
+      discountScope: config.discountScope ?? "order",
+      appliesTo: config.appliesTo ?? "all",
+      selectedProducts: config.selectedProducts ?? [],
+      selectedCollections: config.selectedCollections ?? [],
     },
   });
 };
@@ -136,6 +145,10 @@ export const action = async ({ request, params }) => {
   const usageLimit = formData.get("usageLimit");
   const appliesOncePerCustomer = formData.get("appliesOncePerCustomer") === "true";
   const functionId = formData.get("functionId");
+  const discountScope = formData.get("discountScope") ?? "order";
+  const appliesTo = formData.get("appliesTo") ?? "all";
+  const selectedProducts = JSON.parse(formData.get("selectedProducts") || "[]");
+  const selectedCollections = JSON.parse(formData.get("selectedCollections") || "[]");
 
   if (!functionId) return json({ error: "POS Only Discount function is not deployed yet." });
 
@@ -148,16 +161,29 @@ export const action = async ({ request, params }) => {
     minimumOrderAmount: minimumOrderAmount || null,
     channelKey,
     channelValue,
+    discountScope,
+    appliesTo,
+    productIds: selectedProducts.map((p) => p.id),
+    selectedProducts,
+    collectionIds: selectedCollections.map((c) => c.id),
+    selectedCollections,
   };
 
-  const metafields = [{ namespace: "pos_only", key: "config", type: "json", value: JSON.stringify(config) }];
-  const discountClasses = ["ORDER"];
+  const variables = {
+    collectionIds: appliesTo === "collections" ? selectedCollections.map((c) => c.id) : [],
+  };
+
+  const configMetafield = { namespace: "pos_only", key: "config", type: "json", value: JSON.stringify(config) };
+  const variablesMetafield = { namespace: "pos_only_discount", key: "variables", type: "json", value: JSON.stringify(variables) };
+
+  const metafields = [configMetafield];
+  const discountClasses = discountScope === "product" ? ["PRODUCT"] : ["ORDER"];
 
   try {
-    let response;
+    let createdDiscountId;
     if (!isNew && discountId) {
       if (discountType === "automatic") {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($id: ID!, $d: DiscountAutomaticAppInput!) {
             discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $d) {
               automaticAppDiscount { discountId }
@@ -170,8 +196,9 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppUpdate?.automaticAppDiscount?.discountId;
       } else {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($id: ID!, $d: DiscountCodeAppInput!) {
             discountCodeAppUpdate(id: $id, codeAppDiscount: $d) {
               codeAppDiscount { discountId }
@@ -184,10 +211,11 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppUpdate?.codeAppDiscount?.discountId;
       }
     } else {
       if (discountType === "automatic") {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($d: DiscountAutomaticAppInput!) {
             discountAutomaticAppCreate(automaticAppDiscount: $d) {
               automaticAppDiscount { discountId }
@@ -200,8 +228,9 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppCreate?.automaticAppDiscount?.discountId;
       } else {
-        response = await admin.graphql(
+        const response = await admin.graphql(
           `mutation($d: DiscountCodeAppInput!) {
             discountCodeAppCreate(codeAppDiscount: $d) {
               codeAppDiscount { discountId }
@@ -214,8 +243,32 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppCreate?.codeAppDiscount?.discountId;
       }
     }
+
+    // Save the variables metafield on the discount node
+    if (createdDiscountId) {
+      const nodeId = createdDiscountId
+        .replace("DiscountAutomaticApp", "DiscountAutomaticNode")
+        .replace("DiscountCodeApp", "DiscountCodeNode");
+      await admin.graphql(
+        `mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields { namespace key }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            metafields: [
+              { ownerId: nodeId, ...variablesMetafield },
+            ],
+          },
+        }
+      );
+    }
+
     return json({ success: true });
   } catch (err) {
     return json({ error: err.message });
@@ -243,6 +296,10 @@ function buildEmpty() {
     appliesOncePerCustomer: false,
     channelKey: "channel",
     channelValue: "pos",
+    discountScope: ["order"],
+    appliesTo: ["all"],
+    selectedProducts: [],
+    selectedCollections: [],
   };
 }
 
@@ -260,6 +317,10 @@ function buildFromDiscount(d) {
     appliesOncePerCustomer: d.appliesOncePerCustomer,
     channelKey: d.channelKey || "channel",
     channelValue: d.channelValue || "pos",
+    discountScope: [d.discountScope || "order"],
+    appliesTo: [d.appliesTo || "all"],
+    selectedProducts: d.selectedProducts || [],
+    selectedCollections: d.selectedCollections || [],
   };
 }
 
@@ -272,6 +333,54 @@ export default function PosOnlyDiscountForm() {
   const [form, setForm] = useState(() => isEditing ? buildFromDiscount(discount) : buildEmpty());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const set = useCallback((k, v) => setForm((f) => ({ ...f, [k]: v })), []);
+
+  // ── Resource pickers ────────────────────────────────────────────────────
+
+  const openProductPicker = useCallback(async () => {
+    const selected = await shopify.resourcePicker({
+      type: "product",
+      multiple: true,
+      selectionIds: form.selectedProducts.map((p) => ({ id: p.id })),
+    });
+    if (selected) {
+      set(
+        "selectedProducts",
+        selected.map((p) => ({
+          id: p.id,
+          title: p.title,
+          image: p.images?.[0]?.originalSrc ?? null,
+        }))
+      );
+    }
+  }, [shopify, form.selectedProducts, set]);
+
+  const openCollectionPicker = useCallback(async () => {
+    const selected = await shopify.resourcePicker({
+      type: "collection",
+      multiple: true,
+      selectionIds: form.selectedCollections.map((c) => ({ id: c.id })),
+    });
+    if (selected) {
+      set(
+        "selectedCollections",
+        selected.map((c) => ({
+          id: c.id,
+          title: c.title,
+          image: c.image?.originalSrc ?? null,
+        }))
+      );
+    }
+  }, [shopify, form.selectedCollections, set]);
+
+  const removeProduct = useCallback(
+    (id) => set("selectedProducts", form.selectedProducts.filter((p) => p.id !== id)),
+    [form.selectedProducts, set]
+  );
+
+  const removeCollection = useCallback(
+    (id) => set("selectedCollections", form.selectedCollections.filter((c) => c.id !== id)),
+    [form.selectedCollections, set]
+  );
 
   useEffect(() => {
     if (!fetcher.data) return;
@@ -316,6 +425,10 @@ export default function PosOnlyDiscountForm() {
     data.append("endDateTime", form.endDateTime);
     data.append("usageLimit", form.usageLimit);
     data.append("appliesOncePerCustomer", String(form.appliesOncePerCustomer));
+    data.append("discountScope", form.discountScope[0]);
+    data.append("appliesTo", form.appliesTo[0]);
+    data.append("selectedProducts", JSON.stringify(form.selectedProducts));
+    data.append("selectedCollections", JSON.stringify(form.selectedCollections));
     data.append("functionId", functionId ?? "");
     fetcher.submit(data, { method: "POST" });
   }, [form, fetcher, functionId, shopify, isEditing, discount]);
@@ -328,6 +441,7 @@ export default function PosOnlyDiscountForm() {
 
   const valueLabel = form.discountValueType[0] === "percentage" ? "Percentage off (%)" : "Fixed amount off ($)";
   const pageTitle = isEditing ? "Edit POS discount" : "Create POS discount";
+  const isProductScope = form.discountScope[0] === "product";
 
   return (
     <Page backAction={{ content: "All discounts", url: "/app/pos-only-discount" }} title={pageTitle}>
@@ -345,14 +459,13 @@ export default function PosOnlyDiscountForm() {
         <Layout.Section>
           <BlockStack gap="500">
 
-            <Banner tone="info">
+            <Banner tone="info" title="POS setup instructions">
               <BlockStack gap="200">
-                <Text as="p" variant="bodyMd" fontWeight="semibold">How POS detection works</Text>
-                <Text as="p" variant="bodyMd">
-                  This discount fires when the cart has a specific attribute identifying it as a POS transaction.
-                  By default it checks for <code>channel = pos</code>. Your POS setup must set this cart attribute —
-                  many POS apps do this automatically. Adjust the key and value below if your setup uses a different attribute.
-                </Text>
+                <Text as="p" variant="bodyMd">This discount only applies when the cart has a specific attribute identifying it as a POS transaction (default: <strong>channel = pos</strong>). To set this up:</Text>
+                <Text as="p" variant="bodyMd">1. In your Shopify Admin, go to <strong>Point of Sale &rarr; Settings</strong>.</Text>
+                <Text as="p" variant="bodyMd">2. Under <strong>Home screen layout</strong>, add the <strong>Hydro-GWP POS UI extension</strong> tile to the grid.</Text>
+                <Text as="p" variant="bodyMd">3. Once the tile is on the home screen, it automatically sets the <strong>channel = pos</strong> cart attribute on all POS carts — no staff action needed.</Text>
+                <Text as="p" variant="bodyMd">You can adjust the attribute key and value below if your setup differs.</Text>
               </BlockStack>
             </Banner>
 
@@ -424,6 +537,83 @@ export default function PosOnlyDiscountForm() {
                   helpText="Leave empty for no minimum"
                   autoComplete="off"
                 />
+              </BlockStack>
+            </Card>
+
+            {/* ── Applies to ── */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Applies to</Text>
+                <ChoiceList
+                  title="Discount scope"
+                  choices={[
+                    { label: "Entire order", value: "order" },
+                    { label: "Specific products", value: "product" },
+                  ]}
+                  selected={form.discountScope}
+                  onChange={(v) => {
+                    set("discountScope", v);
+                    if (v[0] === "order") set("appliesTo", ["all"]);
+                  }}
+                />
+                {isProductScope && (
+                  <BlockStack gap="400">
+                    <ChoiceList
+                      title="Product selection"
+                      choices={[
+                        { label: "All products", value: "all" },
+                        { label: "Specific collections", value: "collections" },
+                        { label: "Specific products", value: "products" },
+                      ]}
+                      selected={form.appliesTo}
+                      onChange={(v) => set("appliesTo", v)}
+                    />
+
+                    {form.appliesTo[0] === "collections" && (
+                      <BlockStack gap="300">
+                        <Button onClick={openCollectionPicker}>
+                          {form.selectedCollections.length ? "Edit collections" : "Browse collections"}
+                        </Button>
+                        {form.selectedCollections.length > 0 && (
+                          <InlineStack gap="200" wrap>
+                            {form.selectedCollections.map((c) => (
+                              <Tag key={c.id} onRemove={() => removeCollection(c.id)}>{c.title}</Tag>
+                            ))}
+                          </InlineStack>
+                        )}
+                      </BlockStack>
+                    )}
+
+                    {form.appliesTo[0] === "products" && (
+                      <BlockStack gap="300">
+                        <Button onClick={openProductPicker}>
+                          {form.selectedProducts.length ? "Edit products" : "Browse products"}
+                        </Button>
+                        {form.selectedProducts.length > 0 && (
+                          <ResourceList
+                            resourceName={{ singular: "product", plural: "products" }}
+                            items={form.selectedProducts}
+                            renderItem={(item) => (
+                              <ResourceItem
+                                id={item.id}
+                                media={
+                                  <Thumbnail
+                                    source={item.image || ImageIcon}
+                                    alt={item.title}
+                                    size="small"
+                                  />
+                                }
+                                shortcutActions={[{ content: "Remove", onAction: () => removeProduct(item.id) }]}
+                              >
+                                <Text variant="bodyMd" fontWeight="semibold">{item.title}</Text>
+                              </ResourceItem>
+                            )}
+                          />
+                        )}
+                      </BlockStack>
+                    )}
+                  </BlockStack>
+                )}
               </BlockStack>
             </Card>
 

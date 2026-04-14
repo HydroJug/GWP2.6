@@ -13,6 +13,10 @@ description = "t:description"
   input_query = "src/run.graphql"
   export = "cart-lines-discounts-generate-run"
 
+  [extensions.input.variables]
+  namespace = "pos_only_discount"
+  key = "variables"
+
   [extensions.build]
   command = "node build.mjs"
   path = "dist/function.wasm"

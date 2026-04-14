@@ -1,9 +1,26 @@
-query CartInput {
+query CartInput($collectionIds: [ID!]) {
   cart {
     cost {
       subtotalAmount {
         amount
         currencyCode
+      }
+    }
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+            inAnyCollection(ids: $collectionIds)
+          }
+        }
+      }
+    }
+    buyerIdentity {
+      customer {
+        id
       }
     }
   }

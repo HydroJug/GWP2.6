@@ -30,6 +30,3 @@ redirect_urls = [
   "https://gwp-2-6.vercel.app/auth/shopify/callback",
   "https://gwp-2-6.vercel.app/api/auth/callback"
 ]
-
-[pos]
-embedded = true

@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -18,9 +18,7 @@ import {
   Divider,
   ChoiceList,
   Checkbox,
-  ButtonGroup,
   Badge,
-  Spinner,
 } from "@shopify/polaris";
 import { DeleteIcon, PlusIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -119,28 +117,6 @@ export const action = async ({ request, params }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const isNew = params.id === "new";
-
-  if (formData.get("action") === "searchCollections") {
-    const cursor = formData.get("cursor") || null;
-    const res = await admin.graphql(
-      `query($q: String!, $cursor: String) { collections(first: 25, query: $q, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { id title image { url } productsCount { count } } } }`,
-      { variables: { q: formData.get("query") ?? "", cursor } }
-    );
-    const data = await res.json();
-    const c = data.data.collections;
-    return json({ collections: c.nodes, pageInfo: c.pageInfo, append: !!cursor, searchKey: formData.get("searchKey") });
-  }
-
-  if (formData.get("action") === "searchProducts") {
-    const cursor = formData.get("cursor") || null;
-    const res = await admin.graphql(
-      `query($q: String!, $cursor: String) { products(first: 25, query: $q, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { id title featuredImage { url } } } }`,
-      { variables: { q: formData.get("query") ?? "", cursor } }
-    );
-    const data = await res.json();
-    const p = data.data.products;
-    return json({ products: p.nodes, pageInfo: p.pageInfo, append: !!cursor, searchKey: formData.get("searchKey") });
-  }
 
   const discountId = formData.get("discountId");
   const discountType = formData.get("discountType") ?? "automatic";
@@ -309,23 +285,23 @@ export const action = async ({ request, params }) => {
 
 // ── Item Picker ───────────────────────────────────────────────────────────────
 
-function ItemPicker({ pickerType, onPickerTypeChange, selected, onSelect, searchQuery, onSearchChange, results, isSearching, hasNextPage, isLoadingMore, onLoadMore }) {
-  const [focused, setFocused] = useState(false);
-  const showDropdown = focused && results.length > 0;
-
-  const handleDropdownScroll = useCallback((e) => {
-    const el = e.currentTarget;
-    if (!hasNextPage || isLoadingMore) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) onLoadMore?.();
-  }, [hasNextPage, isLoadingMore, onLoadMore]);
+function ItemPicker({ pickerType, onPickerTypeChange, selected, onSelect, shopify }) {
+  const openPicker = useCallback(async () => {
+    const type = pickerType === "collection" ? "collection" : "product";
+    const result = await shopify.resourcePicker({ type, multiple: false, selectionIds: selected ? [{ id: selected.id }] : [] });
+    if (result && result.length > 0) {
+      const item = result[0];
+      onSelect({
+        id: item.id,
+        title: item.title,
+        image: type === "collection" ? (item.image?.originalSrc ?? null) : (item.images?.[0]?.originalSrc ?? null),
+      });
+    }
+  }, [pickerType, selected, shopify, onSelect]);
 
   return (
     <BlockStack gap="200">
-      <ButtonGroup variant="segmented">
-        <Button size="slim" pressed={pickerType === "collection"} onClick={() => { onPickerTypeChange("collection"); onSelect(null); onSearchChange(""); }}>Collection</Button>
-        <Button size="slim" pressed={pickerType === "product"} onClick={() => { onPickerTypeChange("product"); onSelect(null); onSearchChange(""); }}>Specific product</Button>
-      </ButtonGroup>
-
+      <ChoiceList title="" titleHidden choices={[{ label: "Collection", value: "collection" }, { label: "Specific product", value: "product" }]} selected={[pickerType]} onChange={([v]) => { onPickerTypeChange(v); onSelect(null); }} />
       {selected ? (
         <InlineStack gap="200" align="start" blockAlign="center">
           {selected.image
@@ -333,31 +309,10 @@ function ItemPicker({ pickerType, onPickerTypeChange, selected, onSelect, search
             : <Box width="32px" minHeight="32px" background="bg-surface-secondary" borderRadius="100" />
           }
           <Box><Text variant="bodySm" fontWeight="semibold">{selected.title}</Text></Box>
-          <Button variant="plain" tone="critical" size="slim" onClick={() => { onSelect(null); onSearchChange(""); }}>Remove</Button>
+          <Button variant="plain" tone="critical" size="slim" onClick={() => onSelect(null)}>Remove</Button>
         </InlineStack>
       ) : (
-        <div style={{ position: "relative" }}>
-          <TextField label="" labelHidden placeholder={pickerType === "collection" ? "Search collections…" : "Search products…"} value={searchQuery} onChange={onSearchChange} loading={isSearching} autoComplete="off" clearButton onClearButtonClick={() => onSearchChange("")} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 200)} />
-          {showDropdown && (
-            <div onScroll={handleDropdownScroll} style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 99999, background: "var(--p-color-bg-surface)", border: "1px solid var(--p-color-border)", borderRadius: "var(--p-border-radius-200)", boxShadow: "var(--p-shadow-300)", maxHeight: 280, overflowY: "auto" }}>
-              {results.map((item) => (
-                <button key={item.id} onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => { onSelect({ id: item.id, title: item.title, image: item.image?.url ?? item.featuredImage?.url ?? null }); onSearchChange(""); setFocused(false); }}
-                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left", borderBottom: "1px solid var(--p-color-border-subdued)" }}>
-                  {(item.image?.url ?? item.featuredImage?.url)
-                    ? <img src={item.image?.url ?? item.featuredImage?.url} alt="" style={{ width: 28, height: 28, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
-                    : <div style={{ width: 28, height: 28, borderRadius: 3, background: "var(--p-color-bg-surface-secondary)", flexShrink: 0 }} />
-                  }
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>{item.title}</div>
-                    {item.productsCount?.count !== undefined && <div style={{ fontSize: 11, color: "var(--p-color-text-subdued)" }}>{item.productsCount.count} products</div>}
-                  </div>
-                </button>
-              ))}
-              {isLoadingMore && <div style={{ display: "flex", justifyContent: "center", padding: 8 }}><Spinner size="small" /></div>}
-            </div>
-          )}
-        </div>
+        <Button onClick={openPicker}>Browse {pickerType === "collection" ? "collections" : "products"}</Button>
       )}
     </BlockStack>
   );
@@ -371,16 +326,10 @@ function makeBundleItem(fromConfig) {
       id: crypto.randomUUID(),
       pickerType: fromConfig.type ?? "collection",
       selected: fromConfig.id ? { id: fromConfig.id, title: fromConfig.label ?? fromConfig.id, image: fromConfig.image ?? null } : null,
-      searchQuery: "",
-      results: [],
-      isSearching: false,
-      isLoadingMore: false,
-      hasNextPage: false,
-      endCursor: null,
       minQty: String(fromConfig.minQty ?? 1),
     };
   }
-  return { id: crypto.randomUUID(), pickerType: "collection", selected: null, searchQuery: "", results: [], isSearching: false, isLoadingMore: false, hasNextPage: false, endCursor: null, minQty: "1" };
+  return { id: crypto.randomUUID(), pickerType: "collection", selected: null, minQty: "1" };
 }
 
 function makeBundle(fromConfig) {
@@ -423,7 +372,6 @@ export default function BundleBuilderForm() {
       : [makeBundle()]
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const pendingSearch = useRef(null);
 
   const set = useCallback((k, v) => setForm((f) => ({ ...f, [k]: v })), []);
   const updateBundle = useCallback((bid, field, value) => setBundles((prev) => prev.map((b) => b.id === bid ? { ...b, [field]: value } : b)), []);
@@ -433,49 +381,9 @@ export default function BundleBuilderForm() {
   const addBundle = useCallback(() => setBundles((prev) => [...prev, makeBundle()]), []);
   const removeBundle = useCallback((bid) => setBundles((prev) => prev.filter((b) => b.id !== bid)), []);
 
-  const triggerSearch = useCallback((bid, iid, pickerType, query) => {
-    const searchKey = `${bid}__${iid}`;
-    pendingSearch.current = { searchKey, bid, iid };
-    updateItem(bid, iid, "isSearching", true);
-    const data = new FormData();
-    data.append("action", pickerType === "product" ? "searchProducts" : "searchCollections");
-    data.append("query", query);
-    data.append("searchKey", searchKey);
-    fetcher.submit(data, { method: "POST" });
-  }, [fetcher, updateItem]);
-
-  const loadMoreSearch = useCallback((bid, iid, pickerType, query, cursor) => {
-    const searchKey = `${bid}__${iid}`;
-    setBundles((prev) => prev.map((b) => b.id !== bid ? b : { ...b, items: b.items.map((item) => item.id === iid ? { ...item, isLoadingMore: true } : item) }));
-    const data = new FormData();
-    data.append("action", pickerType === "product" ? "searchProducts" : "searchCollections");
-    data.append("query", query);
-    data.append("searchKey", searchKey);
-    data.append("cursor", cursor);
-    fetcher.submit(data, { method: "POST" });
-  }, [fetcher]);
-
   useEffect(() => {
     if (!fetcher.data) return;
-    if (fetcher.data.collections !== undefined || fetcher.data.products !== undefined) {
-      const searchKey = fetcher.data.searchKey;
-      if (!searchKey) return;
-      const [bid, iid] = searchKey.split("__");
-      const newResults = fetcher.data.collections ?? fetcher.data.products ?? [];
-      const isAppend = !!fetcher.data.append;
-      const pageInfo = fetcher.data.pageInfo;
-      setBundles((prev) => prev.map((b) => b.id !== bid ? b : { ...b, items: b.items.map((item) => {
-        if (item.id !== iid) return item;
-        return {
-          ...item,
-          results: isAppend ? [...item.results, ...newResults] : newResults,
-          isSearching: false,
-          isLoadingMore: false,
-          hasNextPage: pageInfo?.hasNextPage ?? false,
-          endCursor: pageInfo?.endCursor ?? null,
-        };
-      }) }));
-    } else if (fetcher.data.success) {
+    if (fetcher.data.success) {
       shopify.toast.show(isEditing ? "Bundle discount updated!" : "Bundle discount created!");
       if (!isEditing) { setForm(emptyForm); setBundles([makeBundle()]); }
       setIsSubmitting(false);
@@ -525,13 +433,6 @@ export default function BundleBuilderForm() {
   return (
     <Page backAction={{ content: "All discounts", url: "/app/bundle-builder" }} title={pageTitle}>
       <TitleBar title={pageTitle} />
-      <style>{`
-        .bb-bundles, .bb-bundles .Polaris-Box, .bb-bundles .Polaris-Card, .bb-bundles .Polaris-ShadowBevel, .bb-bundles .Polaris-BlockStack { overflow: visible !important; }
-        .bb-bundles .Polaris-ShadowBevel { isolation: auto !important; contain: none !important; }
-        .bb-bundles ~ * { position: relative; z-index: 1; }
-        .bb-add-bundle { position: relative; z-index: 0; }
-      `}</style>
-
       {!functionId && (
         <Box paddingBlockEnd="400">
           <Banner tone="warning">
@@ -555,7 +456,6 @@ export default function BundleBuilderForm() {
               </BlockStack>
             </Card>
 
-            <div className="bb-bundles" style={{ position: "relative", zIndex: 10 }}>
             <BlockStack gap="400">
               <BlockStack gap="100">
                 <Text as="h2" variant="headingLg">Bundles</Text>
@@ -563,8 +463,7 @@ export default function BundleBuilderForm() {
               </BlockStack>
 
               {bundles.map((bundle, bundleIndex) => (
-                <div key={bundle.id} style={{ position: "relative", zIndex: bundles.length - bundleIndex }}>
-                <Card>
+                <Card key={bundle.id}>
                   <BlockStack gap="400">
                     <InlineStack align="space-between" blockAlign="center">
                       <InlineStack gap="200" blockAlign="center">
@@ -612,20 +511,10 @@ export default function BundleBuilderForm() {
                             <Box style={{ flex: 1, minWidth: 0 }}>
                               <ItemPicker
                                 pickerType={item.pickerType}
-                                onPickerTypeChange={(t) => { updateItem(bundle.id, item.id, "pickerType", t); updateItem(bundle.id, item.id, "selected", null); updateItem(bundle.id, item.id, "searchQuery", ""); updateItem(bundle.id, item.id, "results", []); }}
+                                onPickerTypeChange={(t) => { updateItem(bundle.id, item.id, "pickerType", t); updateItem(bundle.id, item.id, "selected", null); }}
                                 selected={item.selected}
                                 onSelect={(v) => updateItem(bundle.id, item.id, "selected", v)}
-                                searchQuery={item.searchQuery}
-                                onSearchChange={(v) => {
-                                  updateItem(bundle.id, item.id, "searchQuery", v);
-                                  if (!v) { updateItem(bundle.id, item.id, "results", []); return; }
-                                  const timer = setTimeout(() => triggerSearch(bundle.id, item.id, item.pickerType, v), 400);
-                                }}
-                                results={item.results}
-                                isSearching={item.isSearching}
-                                hasNextPage={item.hasNextPage}
-                                isLoadingMore={item.isLoadingMore}
-                                onLoadMore={() => { if (item.hasNextPage && !item.isLoadingMore && item.endCursor) loadMoreSearch(bundle.id, item.id, item.pickerType, item.searchQuery, item.endCursor); }}
+                                shopify={shopify}
                               />
                             </Box>
                             <Box minWidth="120px">
@@ -646,14 +535,10 @@ export default function BundleBuilderForm() {
                     </BlockStack>
                   </BlockStack>
                 </Card>
-                </div>
               ))}
 
-              <div className="bb-add-bundle">
-                <Button icon={PlusIcon} onClick={addBundle}>Add another bundle</Button>
-              </div>
+              <Button icon={PlusIcon} onClick={addBundle}>Add another bundle</Button>
             </BlockStack>
-            </div>
 
             <Card>
               <BlockStack gap="400">

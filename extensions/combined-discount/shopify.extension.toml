@@ -18,6 +18,10 @@ description = "t:description"
   input_query = "src/cart_delivery_options_discounts_generate_run.graphql"
   export = "cart-delivery-options-discounts-generate-run"
 
+  [extensions.input.variables]
+  namespace = "combined_discount"
+  key = "variables"
+
   [extensions.build]
   command = ""
   path = "dist/index.wasm"

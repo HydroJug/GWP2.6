@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAppBridge, TitleBar } from "@shopify/app-bridge-react";
 import {
   Page,
@@ -17,8 +17,6 @@ import {
   ChoiceList,
   Thumbnail,
   Divider,
-  ButtonGroup,
-  Spinner,
 } from "@shopify/polaris";
 import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import DateTimePicker from "../components/DateTimePicker";
@@ -157,29 +155,6 @@ async function fetchCollectionProductIds(admin, collectionId) {
 export const action = async ({ request, params }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
-
-  // Handle search actions
-  if (formData.get("action") === "searchCollections") {
-    const cursor = formData.get("cursor") || null;
-    const res = await admin.graphql(
-      `query($q: String!, $cursor: String) { collections(first: 25, query: $q, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { id title image { url } productsCount { count } } } }`,
-      { variables: { q: formData.get("query") ?? "", cursor } }
-    );
-    const data = await res.json();
-    const c = data.data.collections;
-    return json({ collections: c.nodes, pageInfo: c.pageInfo, append: !!cursor });
-  }
-
-  if (formData.get("action") === "searchProducts") {
-    const cursor = formData.get("cursor") || null;
-    const res = await admin.graphql(
-      `query($q: String!, $cursor: String) { products(first: 25, query: $q, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { id title featuredImage { url } } } }`,
-      { variables: { q: formData.get("query") ?? "", cursor } }
-    );
-    const data = await res.json();
-    const p = data.data.products;
-    return json({ products: p.nodes, pageInfo: p.pageInfo, append: !!cursor });
-  }
 
   const isNew = params.id === "new";
   const discountId = formData.get("discountId");
@@ -350,89 +325,43 @@ export const action = async ({ request, params }) => {
 
 // ── Target Picker ─────────────────────────────────────────────────────────────
 
-function TargetPicker({ pickerType, onPickerTypeChange, selected, onSelect, searchQuery, onSearchChange, results, isSearching, hasNextPage, isLoadingMore, onLoadMore }) {
-  const [focused, setFocused] = useState(false);
-  const showDropdown = focused && results.length > 0;
-
-  const handleDropdownScroll = useCallback((e) => {
-    const el = e.currentTarget;
-    if (!hasNextPage || isLoadingMore) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) onLoadMore?.();
-  }, [hasNextPage, isLoadingMore, onLoadMore]);
+function TargetPicker({ pickerType, onPickerTypeChange, selected, onSelect, shopify }) {
+  const openPicker = useCallback(async () => {
+    const type = pickerType === "collection" ? "collection" : "product";
+    const result = await shopify.resourcePicker({ type, multiple: false, selectionIds: selected ? [{ id: selected.id }] : [] });
+    if (result && result.length > 0) {
+      const item = result[0];
+      onSelect({
+        id: item.id,
+        title: item.title,
+        image: type === "collection" ? (item.image?.originalSrc ?? null) : (item.images?.[0]?.originalSrc ?? null),
+      });
+    }
+  }, [pickerType, selected, shopify, onSelect]);
 
   return (
     <BlockStack gap="300">
-      <ButtonGroup variant="segmented">
-        <Button size="slim" pressed={pickerType === "collection"} onClick={() => { onPickerTypeChange("collection"); onSelect(null); onSearchChange(""); }}>
-          Collection
-        </Button>
-        <Button size="slim" pressed={pickerType === "product"} onClick={() => { onPickerTypeChange("product"); onSelect(null); onSearchChange(""); }}>
-          Specific product
-        </Button>
-      </ButtonGroup>
-
-      {selected ? (
+      <ChoiceList
+        title="Target type"
+        choices={[
+          { label: "Collection", value: "collection" },
+          { label: "Specific product", value: "product" },
+        ]}
+        selected={[pickerType]}
+        onChange={([v]) => { onPickerTypeChange(v); onSelect(null); }}
+      />
+      <Button onClick={openPicker}>
+        {selected ? `Change ${pickerType}` : `Browse ${pickerType === "collection" ? "collections" : "products"}`}
+      </Button>
+      {selected && (
         <InlineStack gap="300" align="start" blockAlign="center">
           {selected.image
             ? <Thumbnail source={selected.image} alt={selected.title} size="small" />
             : <Box width="40px" minHeight="40px" background="bg-surface-secondary" borderRadius="100" />
           }
-          <BlockStack gap="050">
-            <Text variant="bodyMd" fontWeight="semibold">{selected.title}</Text>
-            {selected.count !== undefined && (
-              <Text variant="bodySm" tone="subdued">{selected.count} products</Text>
-            )}
-          </BlockStack>
-          <Button variant="plain" tone="critical" onClick={() => { onSelect(null); onSearchChange(""); }}>
-            Remove
-          </Button>
+          <Text variant="bodyMd" fontWeight="semibold">{selected.title}</Text>
+          <Button variant="plain" tone="critical" onClick={() => onSelect(null)}>Remove</Button>
         </InlineStack>
-      ) : (
-        <div style={{ position: "relative" }}>
-          <TextField
-            label=""
-            labelHidden
-            placeholder={pickerType === "collection" ? "Search collections…" : "Search products…"}
-            value={searchQuery}
-            onChange={onSearchChange}
-            loading={isSearching}
-            autoComplete="off"
-            clearButton
-            onClearButtonClick={() => onSearchChange("")}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setTimeout(() => setFocused(false), 200)}
-          />
-          {showDropdown && (
-            <div
-              onScroll={handleDropdownScroll}
-              style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 99999, background: "var(--p-color-bg-surface)", border: "1px solid var(--p-color-border)", borderRadius: "var(--p-border-radius-200)", boxShadow: "var(--p-shadow-300)", maxHeight: 280, overflowY: "auto" }}
-            >
-              {results.map((item) => (
-                <button
-                  key={item.id}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onSelect({ id: item.id, title: item.title, image: item.image?.url ?? item.featuredImage?.url ?? null, count: item.productsCount?.count });
-                    onSearchChange(""); setFocused(false);
-                  }}
-                  style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left", borderBottom: "1px solid var(--p-color-border-subdued)" }}
-                >
-                  {(item.image?.url ?? item.featuredImage?.url)
-                    ? <img src={item.image?.url ?? item.featuredImage?.url} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
-                    : <div style={{ width: 32, height: 32, borderRadius: 4, background: "var(--p-color-bg-surface-secondary)", flexShrink: 0 }} />
-                  }
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 14 }}>{item.title}</div>
-                    {item.productsCount?.count !== undefined && (
-                      <div style={{ fontSize: 12, color: "var(--p-color-text-subdued)" }}>{item.productsCount.count} products</div>
-                    )}
-                  </div>
-                </button>
-              ))}
-              {isLoadingMore && <div style={{ display: "flex", justifyContent: "center", padding: 8 }}><Spinner size="small" /></div>}
-            </div>
-          )}
-        </div>
       )}
     </BlockStack>
   );
@@ -551,12 +480,6 @@ export default function BuyMoreSaveMoreForm() {
     }
     return null;
   });
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchPageInfo, setSearchPageInfo] = useState(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-
   // Tiers state
   const [tiers, setTiers] = useState(() => {
     if (isEditing && discount.tiers?.length) {
@@ -569,42 +492,13 @@ export default function BuyMoreSaveMoreForm() {
     return DEFAULT_TIERS;
   });
 
-  // Search debounce
-  useEffect(() => {
-    if (!searchQuery.trim() || selected) {
-      setSearchResults([]);
-      return;
-    }
-    setIsSearching(true);
-    setSearchPageInfo(null);
-    const timer = setTimeout(() => {
-      const data = new FormData();
-      data.append("action", pickerType === "product" ? "searchProducts" : "searchCollections");
-      data.append("query", searchQuery);
-      fetcher.submit(data, { method: "POST" });
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchQuery, pickerType]);
-
   useEffect(() => {
     if (!fetcher.data) return;
-    if (fetcher.data.collections !== undefined || fetcher.data.products !== undefined) {
-      const newResults = fetcher.data.collections ?? fetcher.data.products ?? [];
-      if (fetcher.data.append) {
-        setSearchResults((r) => [...r, ...newResults]);
-      } else {
-        setSearchResults(newResults);
-      }
-      setSearchPageInfo(fetcher.data.pageInfo ?? null);
-      setIsSearching(false);
-      setIsLoadingMore(false);
-    } else if (fetcher.data.success) {
+    if (fetcher.data.success) {
       shopify.toast.show(isEditing ? "Discount saved!" : "Discount created!");
       if (!isEditing) {
         setForm(buildEmpty());
         setSelected(null);
-        setSearchQuery("");
-        setSearchResults([]);
         setTiers(DEFAULT_TIERS);
       }
       setIsSubmitting(false);
@@ -613,16 +507,6 @@ export default function BuyMoreSaveMoreForm() {
       setIsSubmitting(false);
     }
   }, [fetcher.data, shopify, isEditing]);
-
-  const handleLoadMore = useCallback(() => {
-    if (!searchPageInfo?.hasNextPage || isLoadingMore) return;
-    setIsLoadingMore(true);
-    const data = new FormData();
-    data.append("action", pickerType === "product" ? "searchProducts" : "searchCollections");
-    data.append("query", searchQuery);
-    data.append("cursor", searchPageInfo.endCursor);
-    fetcher.submit(data, { method: "POST" });
-  }, [searchPageInfo, isLoadingMore, pickerType, searchQuery, fetcher]);
 
   const handleTierChange = useCallback((idx, field, value) => {
     setTiers((prev) => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t));
@@ -719,8 +603,6 @@ export default function BuyMoreSaveMoreForm() {
               </BlockStack>
             </Card>
 
-            <div className="target-picker-card" style={{ position: "relative", zIndex: 10 }}>
-              <style dangerouslySetInnerHTML={{ __html: `.target-picker-card, .target-picker-card .Polaris-Box, .target-picker-card .Polaris-Card, .target-picker-card .Polaris-ShadowBevel, .target-picker-card .Polaris-BlockStack { overflow: visible !important; } .target-picker-card ~ * { position: relative; z-index: 1; }` }} />
             <Card>
               <BlockStack gap="400">
                 <BlockStack gap="100">
@@ -732,20 +614,13 @@ export default function BuyMoreSaveMoreForm() {
                 </BlockStack>
                 <TargetPicker
                   pickerType={pickerType}
-                  onPickerTypeChange={(v) => { setPickerType(v); setSelected(null); setSearchQuery(""); setSearchResults([]); }}
+                  onPickerTypeChange={(v) => { setPickerType(v); setSelected(null); }}
                   selected={selected}
                   onSelect={setSelected}
-                  searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
-                  results={searchResults}
-                  isSearching={isSearching}
-                  hasNextPage={searchPageInfo?.hasNextPage ?? false}
-                  isLoadingMore={isLoadingMore}
-                  onLoadMore={handleLoadMore}
+                  shopify={shopify}
                 />
               </BlockStack>
             </Card>
-            </div>
 
             <Card>
               <BlockStack gap="400">

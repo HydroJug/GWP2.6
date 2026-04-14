@@ -3087,9 +3087,11 @@ export enum WeightUnit {
 export type DeliveryInputVariables = Exact<{ [key: string]: never; }>;
 
 
-export type DeliveryInput = { __typename?: 'Input', cart: { __typename?: 'Cart', cost: { __typename?: 'CartCost', subtotalAmount: { __typename?: 'MoneyV2', amount: any, currencyCode: CurrencyCode } }, deliveryGroups: Array<{ __typename?: 'CartDeliveryGroup', id: string, deliveryOptions: Array<{ __typename?: 'CartDeliveryOption', handle: any, title?: string | null, cost: { __typename?: 'MoneyV2', amount: any } }> }> }, discount: { __typename?: 'Discount', discountClasses: Array<DiscountClass>, metafield?: { __typename?: 'Metafield', value: string } | null } };
+export type DeliveryInput = { __typename?: 'Input', cart: { __typename?: 'Cart', cost: { __typename?: 'CartCost', subtotalAmount: { __typename?: 'MoneyV2', amount: any, currencyCode: CurrencyCode } }, deliveryGroups: Array<{ __typename?: 'CartDeliveryGroup', id: string, deliveryOptions: Array<{ __typename?: 'CartDeliveryOption', handle: any, title?: string | null, cost: { __typename?: 'MoneyV2', amount: any } }> }>, buyerIdentity?: { __typename?: 'BuyerIdentity', customer?: { __typename?: 'Customer', id: string } | null } | null }, discount: { __typename?: 'Discount', discountClasses: Array<DiscountClass>, metafield?: { __typename?: 'Metafield', value: string } | null } };
 
-export type CartInputVariables = Exact<{ [key: string]: never; }>;
+export type CartInputVariables = Exact<{
+  collectionIds?: InputMaybe<Array<Scalars['ID']['input']> | Scalars['ID']['input']>;
+}>;
 
 
-export type CartInput = { __typename?: 'Input', cart: { __typename?: 'Cart', cost: { __typename?: 'CartCost', subtotalAmount: { __typename?: 'MoneyV2', amount: any, currencyCode: CurrencyCode } } }, discount: { __typename?: 'Discount', discountClasses: Array<DiscountClass>, metafield?: { __typename?: 'Metafield', value: string } | null } };
+export type CartInput = { __typename?: 'Input', cart: { __typename?: 'Cart', cost: { __typename?: 'CartCost', subtotalAmount: { __typename?: 'MoneyV2', amount: any, currencyCode: CurrencyCode } }, lines: Array<{ __typename?: 'CartLine', id: string, quantity: number, merchandise: { __typename?: 'CustomProduct' } | { __typename?: 'ProductVariant', product: { __typename?: 'Product', id: string, inAnyCollection: boolean } } }>, buyerIdentity?: { __typename?: 'BuyerIdentity', customer?: { __typename?: 'Customer', id: string } | null } | null }, discount: { __typename?: 'Discount', discountClasses: Array<DiscountClass>, metafield?: { __typename?: 'Metafield', value: string } | null } };
