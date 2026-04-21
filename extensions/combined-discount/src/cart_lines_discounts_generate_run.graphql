@@ -1,4 +1,4 @@
-query CartInput($collectionIds: [ID!]) {
+query CartInput($collectionIds: [ID!], $eligibilityTags: [String!]) {
   cart {
     cost {
       subtotalAmount {
@@ -21,6 +21,7 @@ query CartInput($collectionIds: [ID!]) {
     buyerIdentity {
       customer {
         id
+        hasAnyTag(tags: $eligibilityTags)
       }
     }
   }

@@ -34,7 +34,11 @@ export function cartLinesDiscountsGenerateRun(input) {
   }
 
   // ── Customer eligibility ──────────────────────────────────────────────────
-  if ((customerEligibility === 'specific_customers' || customerEligibility === 'specific_segments') && customerIds?.length) {
+  if (customerEligibility === 'specific_segments') {
+    // Tag-based: the input query checks hasAnyTag via $eligibilityTags variable
+    const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
+    if (!hasTag) return { operations: [] };
+  } else if (customerEligibility === 'specific_customers' && customerIds?.length) {
     const customerId = input.cart.buyerIdentity?.customer?.id;
     if (!customerId || !customerIds.includes(customerId)) {
       return { operations: [] };

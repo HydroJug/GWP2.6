@@ -28,7 +28,10 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
   if (!config.includesFreeShipping) return { operations: [] };
 
   // ── Customer eligibility ──────────────────────────────────────────────────
-  if ((config.customerEligibility === 'specific_customers' || config.customerEligibility === 'specific_segments') && config.customerIds?.length) {
+  if (config.customerEligibility === 'specific_segments') {
+    const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
+    if (!hasTag) return { operations: [] };
+  } else if (config.customerEligibility === 'specific_customers' && config.customerIds?.length) {
     const customerId = input.cart.buyerIdentity?.customer?.id;
     if (!customerId || !config.customerIds.includes(customerId)) {
       return { operations: [] };

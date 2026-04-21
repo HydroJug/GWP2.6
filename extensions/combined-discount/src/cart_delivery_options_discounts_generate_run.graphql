@@ -1,4 +1,4 @@
-query DeliveryInput {
+query DeliveryInput($eligibilityTags: [String!]) {
   cart {
     cost {
       subtotalAmount {
@@ -19,6 +19,7 @@ query DeliveryInput {
     buyerIdentity {
       customer {
         id
+        hasAnyTag(tags: $eligibilityTags)
       }
     }
   }

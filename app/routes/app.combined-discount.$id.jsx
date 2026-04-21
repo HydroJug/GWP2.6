@@ -186,9 +186,12 @@ export const action = async ({ request, params }) => {
     selectedSegments,
   };
 
-  // For segments, resolve ALL members to customer GIDs so the function can check.
-  // Paginates through all pages (250 per page) to handle large segments.
+  // For segments, tag all members with a unique tag so the function can check
+  // via hasAnyTag() — avoids the 64KB function input size limit.
+  const eligibilityTag = `discount:${(title || "segment").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
   if (customerEligibility === "specific_segments" && selectedSegments.length > 0) {
+    // Resolve all segment members
     const segmentCustomerIds = [];
     for (const seg of selectedSegments) {
       let cursor = null;
@@ -222,13 +225,40 @@ export const action = async ({ request, params }) => {
         console.log(`[CombinedDiscount] Failed to resolve segment ${seg.id}:`, e.message);
       }
     }
-    console.log(`[CombinedDiscount] Resolved ${segmentCustomerIds.length} customer IDs from segments`);
-    config.customerIds = [...new Set(segmentCustomerIds)];
+
+    const uniqueIds = [...new Set(segmentCustomerIds)];
+    console.log(`[CombinedDiscount] Resolved ${uniqueIds.length} customers, tagging with "${eligibilityTag}"`);
+
+    // Tag customers in parallel batches of 10
+    const BATCH_SIZE = 10;
+    let tagged = 0;
+    for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+      const batch = uniqueIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((custId) =>
+          admin.graphql(
+            `mutation AddTag($id: ID!, $tags: [String!]!) {
+              tagsAdd(id: $id, tags: $tags) {
+                userErrors { field message }
+              }
+            }`,
+            { variables: { id: custId, tags: [eligibilityTag] } }
+          )
+        )
+      );
+      tagged += results.filter((r) => r.status === "fulfilled").length;
+    }
+    console.log(`[CombinedDiscount] Tagged ${tagged}/${uniqueIds.length} customers`);
+
+    // Store the tag in config instead of customer IDs
+    config.eligibilityTag = eligibilityTag;
+    delete config.customerIds;
   }
 
-  // Input variables for the function's GraphQL query (collection IDs for inAnyCollection)
+  // Input variables for the function's GraphQL query
   const variables = {
     collectionIds: appliesTo === "collections" ? selectedCollections.map((c) => c.id) : [],
+    eligibilityTags: customerEligibility === "specific_segments" ? [eligibilityTag] : [],
   };
 
   const configMetafield = { namespace: "combined_discount", key: "config", type: "json", value: JSON.stringify(config) };
@@ -313,11 +343,13 @@ export const action = async ({ request, params }) => {
     }
 
     // Save the variables metafield on the discount node
-    if (createdDiscountId) {
-      const nodeId = createdDiscountId
+    const resolvedDiscountId = createdDiscountId || discountId;
+    if (resolvedDiscountId) {
+      const nodeId = resolvedDiscountId
         .replace("DiscountAutomaticApp", "DiscountAutomaticNode")
         .replace("DiscountCodeApp", "DiscountCodeNode");
-      await admin.graphql(
+      console.log(`[CombinedDiscount] Saving variables metafield on ${nodeId}:`, JSON.stringify(variables));
+      const mfRes = await admin.graphql(
         `mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
           metafieldsSet(metafields: $metafields) {
             metafields { namespace key }
@@ -332,6 +364,10 @@ export const action = async ({ request, params }) => {
           },
         }
       );
+      const mfData = await mfRes.json();
+      console.log(`[CombinedDiscount] Variables metafield result:`, JSON.stringify(mfData.data?.metafieldsSet?.userErrors));
+    } else {
+      console.log(`[CombinedDiscount] WARNING: No discount ID available to save variables metafield`);
     }
 
     return json({ success: true });
