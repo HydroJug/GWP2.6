@@ -186,32 +186,37 @@ export const action = async ({ request, params }) => {
     selectedSegments,
   };
 
-  // For segments, resolve current members to customer GIDs so the function can check.
-  // We use customerSegmentMembers and convert the returned IDs to Customer GIDs,
-  // since the member ID numeric portion matches the Customer ID.
+  // For segments, resolve ALL members to customer GIDs so the function can check.
+  // Paginates through all pages (250 per page) to handle large segments.
   if (customerEligibility === "specific_segments" && selectedSegments.length > 0) {
     const segmentCustomerIds = [];
     for (const seg of selectedSegments) {
+      let cursor = null;
+      let hasNext = true;
       try {
-        const segRes = await admin.graphql(
-          `query($segmentId: ID!) {
-            customerSegmentMembers(first: 250, segmentId: $segmentId) {
-              edges { node { id } }
-            }
-          }`,
-          { variables: { segmentId: seg.id } }
-        );
-        const segData = await segRes.json();
-        console.log(`[CombinedDiscount] Segment ${seg.id} response:`, JSON.stringify(segData.data?.customerSegmentMembers?.edges?.slice(0, 2)));
-        if (segData.errors) {
-          console.log(`[CombinedDiscount] Segment GraphQL errors:`, JSON.stringify(segData.errors));
-        }
-        const members = segData.data?.customerSegmentMembers?.edges ?? [];
-        for (const edge of members) {
-          const memberId = edge.node.id;
-          // Convert gid://shopify/CustomerSegmentMember/X to gid://shopify/Customer/X
-          const numericId = memberId.split("/").pop();
-          segmentCustomerIds.push(`gid://shopify/Customer/${numericId}`);
+        while (hasNext) {
+          const segRes = await admin.graphql(
+            `query($segmentId: ID!, $cursor: String) {
+              customerSegmentMembers(first: 250, segmentId: $segmentId, after: $cursor) {
+                edges { node { id } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }`,
+            { variables: { segmentId: seg.id, cursor } }
+          );
+          const segData = await segRes.json();
+          if (segData.errors) {
+            console.log(`[CombinedDiscount] Segment GraphQL errors:`, JSON.stringify(segData.errors));
+            break;
+          }
+          const members = segData.data?.customerSegmentMembers;
+          if (!members) break;
+          for (const edge of members.edges) {
+            const numericId = edge.node.id.split("/").pop();
+            segmentCustomerIds.push(`gid://shopify/Customer/${numericId}`);
+          }
+          hasNext = members.pageInfo?.hasNextPage ?? false;
+          cursor = members.pageInfo?.endCursor ?? null;
         }
       } catch (e) {
         console.log(`[CombinedDiscount] Failed to resolve segment ${seg.id}:`, e.message);
@@ -230,14 +235,9 @@ export const action = async ({ request, params }) => {
   const variablesMetafield = { namespace: "combined_discount", key: "variables", type: "json", value: JSON.stringify(variables) };
 
   // Determine discount classes based on scope
-  const discountClasses = [];
+  const discountClasses = ["ORDER", "SHIPPING"];
   if (discountScope === "product") {
     discountClasses.push("PRODUCT");
-  } else {
-    discountClasses.push("ORDER");
-  }
-  if (includesFreeShipping) {
-    discountClasses.push("SHIPPING");
   }
 
   const metafields = [configMetafield];
@@ -289,7 +289,8 @@ export const action = async ({ request, params }) => {
         );
         const data = await response.json();
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
-        if (errors.length) return json({ error: errors[0].message });
+        console.log("[CombinedDiscount] Create automatic response:", JSON.stringify(data));
+        if (errors.length) return json({ error: errors.map(e => `${e.field}: ${e.message}`).join("; ") });
         if (data.errors) return json({ error: data.errors[0].message });
         createdDiscountId = data.data?.discountAutomaticAppCreate?.automaticAppDiscount?.discountId;
       } else {
@@ -303,8 +304,9 @@ export const action = async ({ request, params }) => {
           { variables: { d: { title, code, functionId, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, usageLimit: usageLimit ? parseInt(usageLimit) : null, appliesOncePerCustomer, metafields } } }
         );
         const data = await response.json();
+        console.log("[CombinedDiscount] Create code response:", JSON.stringify(data));
         const errors = data.data?.discountCodeAppCreate?.userErrors ?? [];
-        if (errors.length) return json({ error: errors[0].message });
+        if (errors.length) return json({ error: errors.map(e => `${e.field}: ${e.message}`).join("; ") });
         if (data.errors) return json({ error: data.errors[0].message });
         createdDiscountId = data.data?.discountCodeAppCreate?.codeAppDiscount?.discountId;
       }
