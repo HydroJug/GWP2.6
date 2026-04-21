@@ -18,6 +18,10 @@ description = "Provides app-exclusive discounts for customers shopping through t
   input_query = "src/cart_delivery_options_discounts_generate_run.graphql"
   export = "cart-delivery-options-discounts-generate-run"
 
+  [extensions.input.variables]
+  namespace = "tapcart"
+  key = "variables"
+
   [extensions.build]
   command = ""
   path = "dist/function.wasm"

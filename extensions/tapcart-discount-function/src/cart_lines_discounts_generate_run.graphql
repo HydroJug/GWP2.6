@@ -1,4 +1,4 @@
-query CartInput {
+query CartInput($eligibilityTags: [String!]) {
   cart {
     lines {
       id
@@ -32,6 +32,7 @@ query CartInput {
         email
         firstName
         lastName
+        hasAnyTag(tags: $eligibilityTags)
         amountSpent {
           amount
         }

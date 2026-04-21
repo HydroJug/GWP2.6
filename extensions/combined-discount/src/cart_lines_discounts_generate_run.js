@@ -34,7 +34,7 @@ export function cartLinesDiscountsGenerateRun(input) {
   }
 
   // ── Customer eligibility ──────────────────────────────────────────────────
-  if (customerEligibility === 'specific_segments') {
+  if (customerEligibility === 'specific_tags') {
     // Tag-based: the input query checks hasAnyTag via $eligibilityTags variable
     const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
     if (!hasTag) return { operations: [] };

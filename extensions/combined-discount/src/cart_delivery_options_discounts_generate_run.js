@@ -28,7 +28,7 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
   if (!config.includesFreeShipping) return { operations: [] };
 
   // ── Customer eligibility ──────────────────────────────────────────────────
-  if (config.customerEligibility === 'specific_segments') {
+  if (config.customerEligibility === 'specific_tags') {
     const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
     if (!hasTag) return { operations: [] };
   } else if (config.customerEligibility === 'specific_customers' && config.customerIds?.length) {

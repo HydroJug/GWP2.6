@@ -39,6 +39,8 @@ function isCustomerEligible(customer, buyerIdentity, config) {
   switch (config.eligibilityType) {
     case "all_customers":
       return true;
+    case "specific_tags":
+      return customerData?.hasAnyTag === true;
     case "specific_segments":
       if (config.customerSegments.length > 0) {
         const customerTags = customerData.tags || [];

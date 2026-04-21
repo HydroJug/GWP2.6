@@ -158,49 +158,27 @@ export const action = async ({ request, params }) => {
     customerEligibility: formData.get("customerEligibility") ?? "all",
     selectedCustomers: JSON.parse(formData.get("selectedCustomers") || "[]"),
     customerIds: JSON.parse(formData.get("selectedCustomers") || "[]").map((c) => c.id),
-    selectedSegments: JSON.parse(formData.get("selectedSegments") || "[]"),
-    segmentIds: JSON.parse(formData.get("selectedSegments") || "[]").map((s) => s.id),
+    customerTags: JSON.parse(formData.get("customerTags") || "[]"),
     appExclusive: formData.get("appExclusive") !== "false",
     channelKey: "channel",
     channelValue: "tapcart",
   };
 
-  // Resolve customer IDs from segments
-  if (config.customerEligibility === "specific_segments" && config.segmentIds?.length) {
-    const resolvedIds = [];
-    for (const segmentId of config.segmentIds) {
-      let cursor = null;
-      let hasNext = true;
-      while (hasNext) {
-        const res = await admin.graphql(
-          `query($segmentId: ID!, $first: Int!, $after: String) {
-            customerSegmentMembers(segmentId: $segmentId, first: $first, after: $after) {
-              edges { node { id } }
-              pageInfo { hasNextPage endCursor }
-            }
-          }`,
-          { variables: { segmentId, first: 250, after: cursor } }
-        );
-        const data = await res.json();
-        const members = data.data?.customerSegmentMembers;
-        if (members?.edges) {
-          for (const edge of members.edges) {
-            // Convert gid://shopify/CustomerSegmentMember/X to gid://shopify/Customer/X
-            const numericId = edge.node.id.split("/").pop();
-            resolvedIds.push(`gid://shopify/Customer/${numericId}`);
-          }
-        }
-        hasNext = members?.pageInfo?.hasNextPage ?? false;
-        cursor = members?.pageInfo?.endCursor ?? null;
-      }
-    }
-    config.customerIds = [...new Set(resolvedIds)];
-  }
+  const customerEligibility = config.customerEligibility;
+  const customerTags = config.customerTags;
+
+  // Input variables for the function's GraphQL query
+  const variables = {
+    eligibilityTags: customerEligibility === "specific_tags" ? customerTags : [],
+  };
 
   const discountClasses = ["ORDER", "PRODUCT", "SHIPPING"];
-  const metafields = [{ namespace: "tapcart", key: "discount_config", type: "json", value: JSON.stringify(config) }];
+  const configMetafield = { namespace: "tapcart", key: "discount_config", type: "json", value: JSON.stringify(config) };
+  const variablesMetafield = { namespace: "tapcart", key: "variables", type: "json", value: JSON.stringify(variables) };
+  const metafields = [configMetafield];
 
   try {
+    let createdDiscountId;
     if (!isNew && discountId) {
       if (discountType === "automatic") {
         const res = await admin.graphql(
@@ -216,6 +194,7 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppUpdate?.automaticAppDiscount?.discountId;
       } else {
         const res = await admin.graphql(
           `mutation($id: ID!, $d: DiscountCodeAppInput!) {
@@ -230,6 +209,7 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppUpdate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppUpdate?.codeAppDiscount?.discountId;
       }
     } else {
       if (discountType === "automatic") {
@@ -246,6 +226,7 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountAutomaticAppCreate?.automaticAppDiscount?.discountId;
       } else {
         const res = await admin.graphql(
           `mutation($d: DiscountCodeAppInput!) {
@@ -260,8 +241,38 @@ export const action = async ({ request, params }) => {
         const errors = data.data?.discountCodeAppCreate?.userErrors ?? [];
         if (errors.length) return json({ error: errors[0].message });
         if (data.errors) return json({ error: data.errors[0].message });
+        createdDiscountId = data.data?.discountCodeAppCreate?.codeAppDiscount?.discountId;
       }
     }
+
+    // Save the variables metafield on the discount node
+    const resolvedDiscountId = createdDiscountId || discountId;
+    if (resolvedDiscountId) {
+      const nodeId = resolvedDiscountId
+        .replace("DiscountAutomaticApp", "DiscountAutomaticNode")
+        .replace("DiscountCodeApp", "DiscountCodeNode");
+      console.log(`[TapcartDiscount] Saving variables metafield on ${nodeId}:`, JSON.stringify(variables));
+      const mfRes = await admin.graphql(
+        `mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields { namespace key }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            metafields: [
+              { ownerId: nodeId, ...variablesMetafield },
+            ],
+          },
+        }
+      );
+      const mfData = await mfRes.json();
+      console.log(`[TapcartDiscount] Variables metafield result:`, JSON.stringify(mfData.data?.metafieldsSet?.userErrors));
+    } else {
+      console.log(`[TapcartDiscount] WARNING: No discount ID available to save variables metafield`);
+    }
+
     return json({ success: true });
   } catch (err) {
     return json({ error: err.message });
@@ -300,7 +311,7 @@ function buildEmpty() {
     selectedCollections: [],
     customerEligibility: ["all"],
     selectedCustomers: [],
-    selectedSegments: [],
+    customerTags: [],
     appExclusive: true,
   };
 }
@@ -331,7 +342,7 @@ function buildFromDiscount(d) {
     selectedCollections: c.selectedCollections || [],
     customerEligibility: [c.customerEligibility || "all"],
     selectedCustomers: c.selectedCustomers || [],
-    selectedSegments: c.selectedSegments || [],
+    customerTags: c.customerTags || [],
     appExclusive: c.appExclusive !== false,
   };
 }
@@ -360,30 +371,6 @@ function useCustomerSearch() {
   return { query, setQuery, results, loading };
 }
 
-function useSegmentSearch() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (query.length < 2) { setResults([]); return; }
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/search-segments?q=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        setResults(data.segments ?? []);
-      } catch { setResults([]); }
-      setLoading(false);
-    }, 300);
-    return () => clearTimeout(timerRef.current);
-  }, [query]);
-
-  return { query, setQuery, results, loading };
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function TapcartForm() {
@@ -396,7 +383,15 @@ export default function TapcartForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const set = useCallback((k, v) => setForm((f) => ({ ...f, [k]: v })), []);
   const customerSearch = useCustomerSearch();
-  const segmentSearch = useSegmentSearch();
+  const [tagInput, setTagInput] = useState("");
+
+  const addTag = () => {
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+    if (form.customerTags.includes(trimmed)) { setTagInput(""); return; }
+    set("customerTags", [...form.customerTags, trimmed]);
+    setTagInput("");
+  };
 
   useEffect(() => {
     if (!fetcher.data) return;
@@ -447,7 +442,6 @@ export default function TapcartForm() {
 
   // ── Modal state for customer eligibility ───────────────────────────────
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
-  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
 
   // ── Submit ──────────────────────────────────────────────────────────────
 
@@ -481,7 +475,7 @@ export default function TapcartForm() {
     data.append("selectedCollections", JSON.stringify(form.selectedCollections));
     data.append("customerEligibility", form.customerEligibility[0]);
     data.append("selectedCustomers", JSON.stringify(form.selectedCustomers));
-    data.append("selectedSegments", JSON.stringify(form.selectedSegments));
+    data.append("customerTags", JSON.stringify(form.customerTags));
     data.append("appExclusive", String(form.appExclusive));
     fetcher.submit(data, { method: "POST" });
   }, [form, fetcher, functionId, shopify, isEditing, discount]);
@@ -692,82 +686,38 @@ export default function TapcartForm() {
                   title="Who can use this discount"
                   choices={[
                     { label: "All customers", value: "all" },
-                    { label: "Specific customer segments", value: "specific_segments" },
+                    { label: "Customers with specific tags", value: "specific_tags" },
                     { label: "Specific customers", value: "specific_customers" },
                   ]}
                   selected={form.customerEligibility}
                   onChange={(v) => set("customerEligibility", v)}
                 />
 
-                {form.customerEligibility[0] === "specific_segments" && (
+                {form.customerEligibility[0] === "specific_tags" && (
                   <BlockStack gap="300">
-                    <Button onClick={() => { segmentSearch.setQuery(""); setSegmentModalOpen(true); }}>
-                      {form.selectedSegments.length ? "Edit segments" : "Browse segments"}
-                    </Button>
-                    {form.selectedSegments.length > 0 && (
+                    <InlineStack gap="200" blockAlign="end">
+                      <Box minWidth="260px">
+                        <TextField
+                          label="Customer tag"
+                          value={tagInput}
+                          onChange={setTagInput}
+                          placeholder="e.g., VIP"
+                          autoComplete="off"
+                          helpText="Discount applies to customers who have ANY of these tags. Manage tags in Shopify Admin, Flow, or via CSV."
+                          onBlur={addTag}
+                          connectedRight={<Button onClick={addTag}>Add</Button>}
+                        />
+                      </Box>
+                    </InlineStack>
+                    {form.customerTags.length > 0 && (
                       <InlineStack gap="200" wrap>
-                        {form.selectedSegments.map((s) => (
-                          <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
-                            {s.name}
+                        {form.customerTags.map((t) => (
+                          <Tag key={t} onRemove={() => set("customerTags", form.customerTags.filter((x) => x !== t))}>
+                            {t}
                           </Tag>
                         ))}
                       </InlineStack>
                     )}
-                    <Banner tone="info">
-                      <p>Customer IDs are resolved from segments when you save. Re-save to pick up membership changes.</p>
-                    </Banner>
-
-                    <Modal
-                      open={segmentModalOpen}
-                      onClose={() => setSegmentModalOpen(false)}
-                      title="Select customer segments"
-                      primaryAction={{ content: "Done", onAction: () => setSegmentModalOpen(false) }}
-                    >
-                      <Modal.Section>
-                        <BlockStack gap="400">
-                          <TextField
-                            label="Search segments"
-                            value={segmentSearch.query}
-                            onChange={segmentSearch.setQuery}
-                            placeholder="Search by segment name"
-                            autoComplete="off"
-                            suffix={segmentSearch.loading ? <Spinner size="small" /> : null}
-                          />
-                          {segmentSearch.results.length > 0 && (
-                            <BlockStack gap="100">
-                              {segmentSearch.results.map((s) => {
-                                const alreadySelected = form.selectedSegments.some((x) => x.id === s.id);
-                                return (
-                                  <Button
-                                    key={s.id}
-                                    variant="plain"
-                                    textAlign="left"
-                                    disabled={alreadySelected}
-                                    onClick={() => {
-                                      set("selectedSegments", [...form.selectedSegments, { id: s.id, name: s.name }]);
-                                    }}
-                                  >
-                                    {s.name}{alreadySelected ? " (added)" : ""}
-                                  </Button>
-                                );
-                              })}
-                            </BlockStack>
-                          )}
-                          {form.selectedSegments.length > 0 && (
-                            <>
-                              <Text variant="headingSm">Selected</Text>
-                              <InlineStack gap="200" wrap>
-                                {form.selectedSegments.map((s) => (
-                                  <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
-                                    {s.name}
-                                  </Tag>
-                                ))}
-                              </InlineStack>
-                            </>
-                          )}
-                        </BlockStack>
-                      </Modal.Section>
-                    </Modal>
                   </BlockStack>
                 )}
 

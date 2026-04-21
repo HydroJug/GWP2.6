@@ -124,7 +124,7 @@ export const loader = async ({ request, params }) => {
       maxApplicationsPerOrder: config.maxApplicationsPerOrder ?? "",
       customerEligibility: config.customerEligibility ?? "all",
       selectedCustomers: config.selectedCustomers ?? [],
-      selectedSegments: config.selectedSegments ?? [],
+      customerTags: config.customerTags ?? [],
     },
   });
 };
@@ -158,7 +158,7 @@ export const action = async ({ request, params }) => {
   const maxApplicationsPerOrder = formData.get("maxApplicationsPerOrder") || "";
   const customerEligibility = formData.get("customerEligibility") ?? "all";
   const selectedCustomers = JSON.parse(formData.get("selectedCustomers") || "[]");
-  const selectedSegments = JSON.parse(formData.get("selectedSegments") || "[]");
+  const customerTags = JSON.parse(formData.get("customerTags") || "[]");
 
   if (!functionId) return json({ error: "Combined Discount function is not deployed yet." });
 
@@ -182,83 +182,13 @@ export const action = async ({ request, params }) => {
     customerEligibility,
     customerIds: selectedCustomers.map((c) => c.id),
     selectedCustomers,
-    segmentIds: selectedSegments.map((s) => s.id),
-    selectedSegments,
+    customerTags,
   };
-
-  // For segments, tag all members with a unique tag so the function can check
-  // via hasAnyTag() — avoids the 64KB function input size limit.
-  const eligibilityTag = `discount:${(title || "segment").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-
-  if (customerEligibility === "specific_segments" && selectedSegments.length > 0) {
-    // Resolve all segment members
-    const segmentCustomerIds = [];
-    for (const seg of selectedSegments) {
-      let cursor = null;
-      let hasNext = true;
-      try {
-        while (hasNext) {
-          const segRes = await admin.graphql(
-            `query($segmentId: ID!, $cursor: String) {
-              customerSegmentMembers(first: 250, segmentId: $segmentId, after: $cursor) {
-                edges { node { id } }
-                pageInfo { hasNextPage endCursor }
-              }
-            }`,
-            { variables: { segmentId: seg.id, cursor } }
-          );
-          const segData = await segRes.json();
-          if (segData.errors) {
-            console.log(`[CombinedDiscount] Segment GraphQL errors:`, JSON.stringify(segData.errors));
-            break;
-          }
-          const members = segData.data?.customerSegmentMembers;
-          if (!members) break;
-          for (const edge of members.edges) {
-            const numericId = edge.node.id.split("/").pop();
-            segmentCustomerIds.push(`gid://shopify/Customer/${numericId}`);
-          }
-          hasNext = members.pageInfo?.hasNextPage ?? false;
-          cursor = members.pageInfo?.endCursor ?? null;
-        }
-      } catch (e) {
-        console.log(`[CombinedDiscount] Failed to resolve segment ${seg.id}:`, e.message);
-      }
-    }
-
-    const uniqueIds = [...new Set(segmentCustomerIds)];
-    console.log(`[CombinedDiscount] Resolved ${uniqueIds.length} customers, tagging with "${eligibilityTag}"`);
-
-    // Tag customers in parallel batches of 10
-    const BATCH_SIZE = 10;
-    let tagged = 0;
-    for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
-      const batch = uniqueIds.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map((custId) =>
-          admin.graphql(
-            `mutation AddTag($id: ID!, $tags: [String!]!) {
-              tagsAdd(id: $id, tags: $tags) {
-                userErrors { field message }
-              }
-            }`,
-            { variables: { id: custId, tags: [eligibilityTag] } }
-          )
-        )
-      );
-      tagged += results.filter((r) => r.status === "fulfilled").length;
-    }
-    console.log(`[CombinedDiscount] Tagged ${tagged}/${uniqueIds.length} customers`);
-
-    // Store the tag in config instead of customer IDs
-    config.eligibilityTag = eligibilityTag;
-    delete config.customerIds;
-  }
 
   // Input variables for the function's GraphQL query
   const variables = {
     collectionIds: appliesTo === "collections" ? selectedCollections.map((c) => c.id) : [],
-    eligibilityTags: customerEligibility === "specific_segments" ? [eligibilityTag] : [],
+    eligibilityTags: customerEligibility === "specific_tags" ? customerTags : [],
   };
 
   const configMetafield = { namespace: "combined_discount", key: "config", type: "json", value: JSON.stringify(config) };
@@ -405,7 +335,7 @@ function buildEmpty() {
     maxApplicationsPerOrder: "",
     customerEligibility: ["all"],
     selectedCustomers: [],
-    selectedSegments: [],
+    customerTags: [],
   };
 }
 
@@ -431,7 +361,7 @@ function buildFromDiscount(d) {
     maxApplicationsPerOrder: d.maxApplicationsPerOrder ?? "",
     customerEligibility: [d.customerEligibility || "all"],
     selectedCustomers: d.selectedCustomers || [],
-    selectedSegments: d.selectedSegments || [],
+    customerTags: d.customerTags || [],
   };
 }
 
@@ -463,37 +393,19 @@ function useCustomerSearch() {
   return { query, setQuery, results, loading };
 }
 
-function useSegmentSearch() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (query.length < 1) { setResults([]); return; }
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/search-segments?q=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        setResults(data.segments ?? []);
-      } catch {
-        setResults([]);
-      }
-      setLoading(false);
-    }, 300);
-    return () => clearTimeout(timerRef.current);
-  }, [query]);
-
-  return { query, setQuery, results, loading };
-}
-
 // ── Customer eligibility card (modal-based pickers) ─────────────────────────
 
-function CustomerEligibilityCard({ form, set, customerSearch, segmentSearch, addCustomer, removeCustomer }) {
+function CustomerEligibilityCard({ form, set, customerSearch, addCustomer, removeCustomer }) {
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
-  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+
+  const addTag = () => {
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+    if (form.customerTags.includes(trimmed)) { setTagInput(""); return; }
+    set("customerTags", [...form.customerTags, trimmed]);
+    setTagInput("");
+  };
 
   return (
     <Card>
@@ -503,82 +415,38 @@ function CustomerEligibilityCard({ form, set, customerSearch, segmentSearch, add
           title="Who can use this discount"
           choices={[
             { label: "All customers", value: "all" },
-            { label: "Specific customer segments", value: "specific_segments" },
+            { label: "Customers with specific tags", value: "specific_tags" },
             { label: "Specific customers", value: "specific_customers" },
           ]}
           selected={form.customerEligibility}
           onChange={(v) => set("customerEligibility", v)}
         />
 
-        {form.customerEligibility[0] === "specific_segments" && (
+        {form.customerEligibility[0] === "specific_tags" && (
           <BlockStack gap="300">
-            <Button onClick={() => { segmentSearch.setQuery(""); setSegmentModalOpen(true); }}>
-              {form.selectedSegments.length ? "Edit segments" : "Browse segments"}
-            </Button>
-            {form.selectedSegments.length > 0 && (
+            <InlineStack gap="200" blockAlign="end">
+              <Box minWidth="260px">
+                <TextField
+                  label="Customer tag"
+                  value={tagInput}
+                  onChange={setTagInput}
+                  placeholder="e.g., VIP"
+                  autoComplete="off"
+                  helpText="Discount applies to customers who have ANY of these tags. Manage tags in Shopify Admin, Flow, or via CSV."
+                  onBlur={addTag}
+                  connectedRight={<Button onClick={addTag}>Add</Button>}
+                />
+              </Box>
+            </InlineStack>
+            {form.customerTags.length > 0 && (
               <InlineStack gap="200" wrap>
-                {form.selectedSegments.map((s) => (
-                  <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
-                    {s.name}
+                {form.customerTags.map((t) => (
+                  <Tag key={t} onRemove={() => set("customerTags", form.customerTags.filter((x) => x !== t))}>
+                    {t}
                   </Tag>
                 ))}
               </InlineStack>
             )}
-            <Banner tone="info">
-              <p>Customer IDs are resolved from segments when you save. Re-save to pick up membership changes.</p>
-            </Banner>
-
-            <Modal
-              open={segmentModalOpen}
-              onClose={() => setSegmentModalOpen(false)}
-              title="Select customer segments"
-              primaryAction={{ content: "Done", onAction: () => setSegmentModalOpen(false) }}
-            >
-              <Modal.Section>
-                <BlockStack gap="400">
-                  <TextField
-                    label="Search segments"
-                    value={segmentSearch.query}
-                    onChange={segmentSearch.setQuery}
-                    placeholder="Search by segment name"
-                    autoComplete="off"
-                    suffix={segmentSearch.loading ? <Spinner size="small" /> : null}
-                  />
-                  {segmentSearch.results.length > 0 && (
-                    <BlockStack gap="100">
-                      {segmentSearch.results.map((s) => {
-                        const alreadySelected = form.selectedSegments.some((x) => x.id === s.id);
-                        return (
-                          <Button
-                            key={s.id}
-                            variant="plain"
-                            textAlign="left"
-                            disabled={alreadySelected}
-                            onClick={() => {
-                              set("selectedSegments", [...form.selectedSegments, { id: s.id, name: s.name }]);
-                            }}
-                          >
-                            {s.name}{alreadySelected ? " (added)" : ""}
-                          </Button>
-                        );
-                      })}
-                    </BlockStack>
-                  )}
-                  {form.selectedSegments.length > 0 && (
-                    <>
-                      <Text variant="headingSm">Selected</Text>
-                      <InlineStack gap="200" wrap>
-                        {form.selectedSegments.map((s) => (
-                          <Tag key={s.id} onRemove={() => set("selectedSegments", form.selectedSegments.filter((x) => x.id !== s.id))}>
-                            {s.name}
-                          </Tag>
-                        ))}
-                      </InlineStack>
-                    </>
-                  )}
-                </BlockStack>
-              </Modal.Section>
-            </Modal>
           </BlockStack>
         )}
 
@@ -671,7 +539,6 @@ export default function CombinedDiscountForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const set = useCallback((k, v) => setForm((f) => ({ ...f, [k]: v })), []);
   const customerSearch = useCustomerSearch();
-  const segmentSearch = useSegmentSearch();
 
   useEffect(() => {
     if (!fetcher.data) return;
@@ -781,7 +648,7 @@ export default function CombinedDiscountForm() {
     data.append("maxApplicationsPerOrder", form.maxApplicationsPerOrder);
     data.append("customerEligibility", form.customerEligibility[0]);
     data.append("selectedCustomers", JSON.stringify(form.selectedCustomers));
-    data.append("selectedSegments", JSON.stringify(form.selectedSegments));
+    data.append("customerTags", JSON.stringify(form.customerTags));
     fetcher.submit(data, { method: "POST" });
   }, [form, fetcher, functionId, shopify, isEditing, discount]);
 
@@ -926,7 +793,6 @@ export default function CombinedDiscountForm() {
               form={form}
               set={set}
               customerSearch={customerSearch}
-              segmentSearch={segmentSearch}
               addCustomer={addCustomer}
               removeCustomer={removeCustomer}
             />
