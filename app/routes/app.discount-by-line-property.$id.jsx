@@ -85,6 +85,13 @@ export const loader = async ({ request, params }) => {
       propertyKey: config.propertyKey ?? "",
       valueType: config.valueType ?? "percentage",
       amount: config.amount?.toString() ?? "",
+      tiers: Array.isArray(config.tiers)
+        ? config.tiers.map((t) => ({
+            minCount: String(t.minCount ?? ""),
+            valueType: t.valueType ?? "percentage",
+            amount: String(t.amount ?? ""),
+          }))
+        : [],
     },
   });
 };
@@ -101,6 +108,8 @@ export const action = async ({ request, params }) => {
   const propertyKey = formData.get("propertyKey")?.trim();
   const valueType = formData.get("valueType");
   const amount = parseFloat(formData.get("amount") || "0");
+  const tieredEnabled = formData.get("tieredEnabled") === "true";
+  const tiersJson = formData.get("tiers") || "[]";
   const startDateTime = formData.get("startDateTime");
   const endDateTime = formData.get("endDateTime");
   const functionId = formData.get("functionId");
@@ -109,11 +118,43 @@ export const action = async ({ request, params }) => {
     return json({ error: "The Discount by Line Item Property function is not deployed yet." });
   if (!title) return json({ error: "Title is required." });
   if (!propertyKey) return json({ error: "Line item property key is required." });
-  if (!(amount > 0)) return json({ error: "Discount value must be greater than zero." });
-  if (valueType === "percentage" && amount > 100)
-    return json({ error: "Percentage cannot exceed 100." });
 
-  const config = { title, propertyKey, valueType, amount };
+  let tiers = [];
+  if (tieredEnabled) {
+    try {
+      tiers = JSON.parse(tiersJson);
+    } catch {
+      return json({ error: "Could not parse tier config." });
+    }
+    if (!Array.isArray(tiers) || tiers.length === 0) {
+      return json({ error: "Add at least one tier, or turn off tiered mode." });
+    }
+    for (const t of tiers) {
+      const mc = parseInt(t.minCount, 10);
+      const a = parseFloat(t.amount);
+      if (!(mc > 0)) return json({ error: "Each tier needs a minimum count > 0." });
+      if (!(a > 0)) return json({ error: "Each tier needs a discount value > 0." });
+      if (t.valueType === "percentage" && a > 100)
+        return json({ error: "Percentage cannot exceed 100." });
+    }
+  } else {
+    if (!(amount > 0)) return json({ error: "Discount value must be greater than zero." });
+    if (valueType === "percentage" && amount > 100)
+      return json({ error: "Percentage cannot exceed 100." });
+  }
+
+  // Tiered mode wins when enabled; otherwise persist the flat fields.
+  const config = tieredEnabled
+    ? {
+        title,
+        propertyKey,
+        tiers: tiers.map((t) => ({
+          minCount: parseInt(t.minCount, 10),
+          valueType: t.valueType,
+          amount: parseFloat(t.amount),
+        })),
+      }
+    : { title, propertyKey, valueType, amount };
 
   // The function's input query reads the property key from this metafield so
   // it can fetch attribute(key: $propertyKey) on each cart line.
@@ -224,6 +265,8 @@ function buildEmptyForm() {
     propertyKey: "",
     valueType: ["percentage"],
     amount: "",
+    tieredEnabled: false,
+    tiers: [],
     startDateTime: nowLocal(),
     endDateTime: "",
   };
@@ -233,11 +276,17 @@ function buildFormFromDiscount(d) {
   return {
     title: d.title,
     propertyKey: d.propertyKey,
-    valueType: [d.valueType],
+    valueType: [d.valueType || "percentage"],
     amount: d.amount,
+    tieredEnabled: Array.isArray(d.tiers) && d.tiers.length > 0,
+    tiers: Array.isArray(d.tiers) ? d.tiers : [],
     startDateTime: d.startsAt,
     endDateTime: d.endsAt,
   };
+}
+
+function emptyTier() {
+  return { minCount: "", valueType: "percentage", amount: "" };
 }
 
 export default function LinePropertyDiscountForm() {
@@ -279,14 +328,37 @@ export default function LinePropertyDiscountForm() {
       shopify.toast.show("Line item property key is required.", { isError: true });
       return;
     }
-    const amt = parseFloat(form.amount);
-    if (!(amt > 0)) {
-      shopify.toast.show("Discount value must be greater than zero.", { isError: true });
-      return;
-    }
-    if (form.valueType[0] === "percentage" && amt > 100) {
-      shopify.toast.show("Percentage cannot exceed 100.", { isError: true });
-      return;
+    if (form.tieredEnabled) {
+      if (!form.tiers.length) {
+        shopify.toast.show("Add at least one tier.", { isError: true });
+        return;
+      }
+      for (const t of form.tiers) {
+        const mc = parseInt(t.minCount, 10);
+        const a = parseFloat(t.amount);
+        if (!(mc > 0)) {
+          shopify.toast.show("Each tier needs a minimum count > 0.", { isError: true });
+          return;
+        }
+        if (!(a > 0)) {
+          shopify.toast.show("Each tier needs a discount value > 0.", { isError: true });
+          return;
+        }
+        if (t.valueType === "percentage" && a > 100) {
+          shopify.toast.show("Percentage cannot exceed 100.", { isError: true });
+          return;
+        }
+      }
+    } else {
+      const amt = parseFloat(form.amount);
+      if (!(amt > 0)) {
+        shopify.toast.show("Discount value must be greater than zero.", { isError: true });
+        return;
+      }
+      if (form.valueType[0] === "percentage" && amt > 100) {
+        shopify.toast.show("Percentage cannot exceed 100.", { isError: true });
+        return;
+      }
     }
     setIsSubmitting(true);
     const data = new FormData();
@@ -295,6 +367,8 @@ export default function LinePropertyDiscountForm() {
     data.append("propertyKey", form.propertyKey.trim());
     data.append("valueType", form.valueType[0]);
     data.append("amount", form.amount);
+    data.append("tieredEnabled", form.tieredEnabled ? "true" : "false");
+    data.append("tiers", JSON.stringify(form.tiers));
     data.append("startDateTime", form.startDateTime);
     data.append("endDateTime", form.endDateTime);
     data.append("functionId", functionId ?? "");
@@ -380,32 +454,134 @@ export default function LinePropertyDiscountForm() {
                 <Text as="h2" variant="headingMd">
                   Discount value
                 </Text>
-                <ChoiceList
-                  title="Value type"
-                  choices={[
-                    { label: "Percentage off", value: "percentage" },
-                    { label: "Fixed amount off (per item)", value: "fixedAmount" },
-                  ]}
-                  selected={form.valueType}
-                  onChange={(v) => set("valueType", v)}
+                <Checkbox
+                  label="Tiered discount based on count of matching items"
+                  helpText="When on, the discount scales with how many cart lines carry the property — e.g. 2 items get one rate, 3 items get another. Tiers re-evaluate automatically when items are added or removed."
+                  checked={form.tieredEnabled}
+                  onChange={(v) => set("tieredEnabled", v)}
                 />
-                <Box maxWidth="220px">
-                  <TextField
-                    label={isPercentage ? "Percentage" : "Amount off each item"}
-                    type="number"
-                    value={form.amount}
-                    onChange={(v) => set("amount", v)}
-                    min={0}
-                    prefix={isPercentage ? undefined : "$"}
-                    suffix={isPercentage ? "%" : undefined}
-                    autoComplete="off"
-                    helpText={
-                      isPercentage
-                        ? "Use 100 for a fully free line."
-                        : "Deducted from each matching item."
-                    }
-                  />
-                </Box>
+
+                {!form.tieredEnabled && (
+                  <>
+                    <ChoiceList
+                      title="Value type"
+                      choices={[
+                        { label: "Percentage off", value: "percentage" },
+                        { label: "Fixed amount off (per item)", value: "fixedAmount" },
+                      ]}
+                      selected={form.valueType}
+                      onChange={(v) => set("valueType", v)}
+                    />
+                    <Box maxWidth="220px">
+                      <TextField
+                        label={isPercentage ? "Percentage" : "Amount off each item"}
+                        type="number"
+                        value={form.amount}
+                        onChange={(v) => set("amount", v)}
+                        min={0}
+                        prefix={isPercentage ? undefined : "$"}
+                        suffix={isPercentage ? "%" : undefined}
+                        autoComplete="off"
+                        helpText={
+                          isPercentage
+                            ? "Use 100 for a fully free line."
+                            : "Deducted from each matching item."
+                        }
+                      />
+                    </Box>
+                  </>
+                )}
+
+                {form.tieredEnabled && (
+                  <BlockStack gap="300">
+                    <Text variant="bodySm" tone="subdued">
+                      The function picks the HIGHEST tier whose minimum count is
+                      met by the live cart. If no tier matches, no discount applies.
+                    </Text>
+                    {form.tiers.map((tier, idx) => {
+                      const tierIsPct = tier.valueType === "percentage";
+                      return (
+                        <InlineStack key={idx} gap="300" wrap blockAlign="end">
+                          <Box minWidth="120px">
+                            <TextField
+                              label="Min items"
+                              type="number"
+                              value={tier.minCount}
+                              onChange={(v) =>
+                                set(
+                                  "tiers",
+                                  form.tiers.map((t, i) =>
+                                    i === idx ? { ...t, minCount: v } : t,
+                                  ),
+                                )
+                              }
+                              min={1}
+                              autoComplete="off"
+                            />
+                          </Box>
+                          <Box minWidth="180px">
+                            <ChoiceList
+                              title="Value type"
+                              titleHidden
+                              choices={[
+                                { label: "Percentage", value: "percentage" },
+                                { label: "Fixed amount", value: "fixedAmount" },
+                              ]}
+                              selected={[tier.valueType]}
+                              onChange={(v) =>
+                                set(
+                                  "tiers",
+                                  form.tiers.map((t, i) =>
+                                    i === idx ? { ...t, valueType: v[0] } : t,
+                                  ),
+                                )
+                              }
+                            />
+                          </Box>
+                          <Box minWidth="140px">
+                            <TextField
+                              label={tierIsPct ? "Percentage" : "Amount"}
+                              type="number"
+                              value={tier.amount}
+                              onChange={(v) =>
+                                set(
+                                  "tiers",
+                                  form.tiers.map((t, i) =>
+                                    i === idx ? { ...t, amount: v } : t,
+                                  ),
+                                )
+                              }
+                              min={0}
+                              prefix={tierIsPct ? undefined : "$"}
+                              suffix={tierIsPct ? "%" : undefined}
+                              autoComplete="off"
+                            />
+                          </Box>
+                          <Button
+                            variant="tertiary"
+                            onClick={() =>
+                              set(
+                                "tiers",
+                                form.tiers.filter((_, i) => i !== idx),
+                              )
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </InlineStack>
+                      );
+                    })}
+                    <InlineStack>
+                      <Button
+                        onClick={() =>
+                          set("tiers", [...form.tiers, emptyTier()])
+                        }
+                      >
+                        Add tier
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                )}
               </BlockStack>
             </Card>
 

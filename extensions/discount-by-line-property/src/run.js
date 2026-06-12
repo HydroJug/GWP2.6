@@ -10,8 +10,22 @@
  * do not inspect the value — the Functions API can only fetch a property by a
  * known key, and "key exists" is the configured match rule.
  *
- * The discount value is merchant-configurable: either a percentage off or a
- * fixed amount off each matching item.
+ * Two modes are supported:
+ *
+ *   1) Flat (legacy):   { valueType, amount }
+ *        Every matching line gets the same discount, regardless of count.
+ *
+ *   2) Tiered:          { tiers: [{ minCount, valueType, amount }, ...] }
+ *        The function counts matching lines and applies the HIGHEST tier
+ *        whose `minCount` is satisfied. If no tier matches (e.g. only 1
+ *        matching line and the lowest tier requires 2), no discount is
+ *        applied — letting the discount auto-adjust as items are added or
+ *        removed from cart. This is what Make It a Set uses: the storefront
+ *        stamps `_MS` on every set member, and Shopify re-evaluates this
+ *        function on every cart change so the tier follows the live count.
+ *
+ * Tiered mode takes precedence when `tiers` is a non-empty array. Otherwise
+ * the function falls back to the flat config for backward compatibility.
  */
 export function run(input) {
   const configValue = input.discount?.metafield?.value;
@@ -34,52 +48,43 @@ export function run(input) {
     return { operations: [] };
   }
 
-  const { title, valueType, amount } = config;
-  const numericAmount = parseFloat(amount);
-
-  if (!valueType || !(numericAmount > 0)) {
-    console.log("[LinePropertyDiscount] Invalid value config — exiting");
-    return { operations: [] };
-  }
-
-  // Build the discount value once — it's the same for every matching line.
-  let value;
-  if (valueType === "percentage") {
-    // Clamp to a sane 0–100 range.
-    const pct = Math.min(Math.max(numericAmount, 0), 100);
-    value = { percentage: { value: pct } };
-  } else if (valueType === "fixedAmount") {
-    value = {
-      fixedAmount: {
-        appliesToEachItem: true,
-        amount: numericAmount.toString(),
-      },
-    };
-  } else {
-    console.log("[LinePropertyDiscount] Unknown valueType:", valueType);
-    return { operations: [] };
-  }
-
+  // First pass: collect matching cart lines (those carrying the configured
+  // attribute key — the input query scopes attribute() to that key, so
+  // `attribute != null` means present).
   const lines = input.cart.lines ?? [];
-  const candidates = [];
-
+  const matching = [];
   for (const line of lines) {
-    // The query already scoped attribute() to the configured key, so any
-    // non-null attribute here means the line carries that property.
     if (!line.attribute) continue;
-    candidates.push({
-      message: title || "Discount applied",
-      targets: [{ cartLine: { id: line.id } }],
-      value,
-    });
+    matching.push(line);
   }
 
-  if (!candidates.length) {
+  if (!matching.length) {
     console.log("[LinePropertyDiscount] No lines carry the configured property — no discount");
     return { operations: [] };
   }
 
-  console.log(`[LinePropertyDiscount] Discounting ${candidates.length} line(s)`);
+  // Resolve the discount value: tiered if configured, else flat.
+  const value = resolveValue(config, matching.length);
+  if (!value) {
+    // Either invalid config or — in tiered mode — no tier matched the
+    // current count. Returning [] explicitly drops any previously-applied
+    // discount on the next cart re-evaluation.
+    console.log(
+      `[LinePropertyDiscount] No applicable discount for matching count = ${matching.length}`,
+    );
+    return { operations: [] };
+  }
+
+  const title = config.title || "Discount applied";
+  const candidates = matching.map((line) => ({
+    message: title,
+    targets: [{ cartLine: { id: line.id } }],
+    value,
+  }));
+
+  console.log(
+    `[LinePropertyDiscount] Discounting ${candidates.length} line(s)`,
+  );
 
   return {
     operations: [
@@ -91,4 +96,42 @@ export function run(input) {
       },
     ],
   };
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function buildValue(valueType, amount) {
+  const numericAmount = parseFloat(amount);
+  if (!valueType || !(numericAmount > 0)) return null;
+
+  if (valueType === "percentage") {
+    const pct = Math.min(Math.max(numericAmount, 0), 100);
+    return { percentage: { value: pct } };
+  }
+  if (valueType === "fixedAmount") {
+    return {
+      fixedAmount: {
+        appliesToEachItem: true,
+        amount: numericAmount.toString(),
+      },
+    };
+  }
+  return null;
+}
+
+function resolveValue(config, matchingCount) {
+  // Tiered mode — pick the highest tier whose minCount <= live matching count.
+  if (Array.isArray(config.tiers) && config.tiers.length > 0) {
+    let best = null;
+    for (const tier of config.tiers) {
+      const minCount = parseInt(tier.minCount, 10);
+      if (!(minCount > 0) || matchingCount < minCount) continue;
+      if (!best || minCount > parseInt(best.minCount, 10)) best = tier;
+    }
+    if (!best) return null;
+    return buildValue(best.valueType, best.amount);
+  }
+
+  // Flat mode (legacy).
+  return buildValue(config.valueType, config.amount);
 }
