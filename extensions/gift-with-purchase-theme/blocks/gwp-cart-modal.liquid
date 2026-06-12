@@ -311,35 +311,42 @@
         const isComplete = cartTotal >= tier.thresholdAmount;
         const hasGiftFromThis = hasGiftFromTier(tier.id, tier.name);
         const giftInCart = getGiftFromCart(tier.id, tier.name);
-        
-        // Get image URL - check multiple possible sources
+
+        // Get image URL — check multiple sources, but never trust the snapshotted
+        // tier.collectionImageUrl (it's frozen at admin save time and can point to
+        // a product that's since been unpublished from the Online Store).
         let imageUrl = '';
+        let collectionLookupHandle = '';
         if (giftInCart && giftInCart.image) {
           imageUrl = giftInCart.image;
         } else if (tier.giftProducts && tier.giftProducts.length > 0) {
           // Try different image property paths for individual products
           const firstProduct = tier.giftProducts[0];
-          imageUrl = firstProduct.featuredImage?.url || 
-                     firstProduct.imageUrl || 
+          imageUrl = firstProduct.featuredImage?.url ||
+                     firstProduct.imageUrl ||
                      firstProduct.image?.url ||
                      firstProduct.image ||
                      '';
-        } else if (tier.collectionImageUrl) {
-          // Collection-based tier with saved image URL
-          imageUrl = tier.collectionImageUrl;
+        } else if (tier.collectionHandle) {
+          // Defer to client-side fetch so we always get a currently-published product image
+          collectionLookupHandle = tier.collectionHandle;
         }
-        
-        const borderStyle = isComplete 
-          ? 'border: 2px solid #28a745; box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);' 
+
+        const borderStyle = isComplete
+          ? 'border: 2px solid #28a745; box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);'
           : 'border: 1px solid #ddd; background: #f9f9f9;';
-        
+
+        const handleAttr = collectionLookupHandle
+          ? ` data-collection-handle="${collectionLookupHandle}"`
+          : '';
+
         tierIconsHTML += `
-          <div class="gwp-progress-icon${isComplete ? ' complete' : ''}" 
-               style="left: ${tierPosition}%;" 
-               data-threshold="${tier.thresholdAmount}" 
+          <div class="gwp-progress-icon${isComplete ? ' complete' : ''}"
+               style="left: ${tierPosition}%;"
+               data-threshold="${tier.thresholdAmount}"
                data-tier-id="${tier.id}"
-               data-tier-name="${tier.name}">
-            ${imageUrl 
+               data-tier-name="${tier.name}"${handleAttr}>
+            ${imageUrl
               ? `<img src="${imageUrl}" alt="${tier.name} Gift" class="gwp-tier-image ${isComplete ? 'complete' : ''}">`
               : `<div class="gwp-tier-placeholder ${isComplete ? 'complete' : ''}">🎁</div>`
             }
@@ -390,9 +397,61 @@
       } else {
         container.classList.remove('gwp-clickable');
       }
-      
+
+      // Resolve collection-based tier icons against the live storefront
+      // collection (filters out unpublished products automatically).
+      resolveCollectionIcons(container);
+
       // Add click handlers
       initProgressBarClickHandlers();
+    }
+
+    // Cache by collection handle so repeated renders (cart updates) don't refetch.
+    const gwpCollectionImageCache = new Map();
+
+    async function fetchCollectionFirstImage(handle) {
+      if (!handle) return null;
+      if (gwpCollectionImageCache.has(handle)) {
+        return gwpCollectionImageCache.get(handle);
+      }
+      const promise = (async () => {
+        try {
+          const resp = await fetch(`/collections/${encodeURIComponent(handle)}/products.json?limit=1`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          const first = data.products?.[0];
+          if (!first) return null;
+          const img = first.featured_image || first.images?.[0] || null;
+          return typeof img === 'string' ? img : (img?.src || img?.url || null);
+        } catch (e) {
+          debugLog('Failed to fetch collection first image:', handle, e);
+          return null;
+        }
+      })();
+      gwpCollectionImageCache.set(handle, promise);
+      return promise;
+    }
+
+    async function resolveCollectionIcons(container) {
+      const icons = container.querySelectorAll('[data-collection-handle]');
+      for (const iconEl of icons) {
+        const handle = iconEl.getAttribute('data-collection-handle');
+        const image = await fetchCollectionFirstImage(handle);
+        if (!image) continue;
+        const tierName = iconEl.getAttribute('data-tier-name') || 'Gift';
+        const isComplete = iconEl.classList.contains('complete');
+        const placeholder = iconEl.querySelector('.gwp-tier-placeholder');
+        if (placeholder) {
+          const img = document.createElement('img');
+          img.src = image;
+          img.alt = `${tierName} Gift`;
+          img.className = `gwp-tier-image${isComplete ? ' complete' : ''}`;
+          placeholder.replaceWith(img);
+        } else {
+          const existingImg = iconEl.querySelector('img.gwp-tier-image');
+          if (existingImg && existingImg.src !== image) existingImg.src = image;
+        }
+      }
     }
     
     // Format money (cents to dollars)

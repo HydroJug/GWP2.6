@@ -31,6 +31,7 @@ export default function App() {
         <Link to="/app/buy-more-save-more">Buy More, Save More</Link>
         <Link to="/app/progress-bar">Progress Bar</Link>
         <Link to="/app/free-etch">Free Etch Discount</Link>
+        <Link to="/app/discount-by-line-property">Line Item Property Discount</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

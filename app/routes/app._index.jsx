@@ -94,6 +94,13 @@ const tools = [
     url: "/app/free-etch",
     cta: "Manage discounts",
   },
+  {
+    title: "Line Item Property Discount",
+    description: "Automatically discount cart lines that carry a specific line item property — by percentage or fixed amount.",
+    icon: DiscountIcon,
+    url: "/app/discount-by-line-property",
+    cta: "Manage discounts",
+  },
 ];
 
 export default function HomePage() {

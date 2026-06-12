@@ -1,0 +1,26 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "t:name"
+handle = "discount-by-line-property"
+uid = "4a64fe5b-f43d-43f0-8ba8-3ad84c04d35ca1b2c3d4"
+type = "function"
+
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.input.variables]
+  namespace = "line_property_discount"
+  key = "variables"
+
+  [extensions.build]
+  command = "node build.mjs"
+  path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/discount-by-line-property/new"
+  details = "/app/discount-by-line-property/:id"

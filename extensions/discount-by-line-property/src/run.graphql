@@ -1,0 +1,23 @@
+query RunInput($propertyKey: String) {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      attribute(key: $propertyKey) {
+        key
+        value
+      }
+    }
+  }
+  discount {
+    metafield(namespace: "line_property_discount", key: "config") {
+      value
+    }
+    discountClasses
+  }
+}
