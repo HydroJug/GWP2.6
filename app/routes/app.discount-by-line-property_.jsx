@@ -25,6 +25,7 @@ import {
   AnalyticsCells,
   analyticsHeadings,
 } from "../components/DiscountAnalytics";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 const FUNCTION_TITLE = "Discount by Line Item Property";
 
@@ -81,6 +82,14 @@ export default function LinePropertyDiscountList() {
       </IndexTable.Cell>
       <IndexTable.Cell>{formatDate(d.startsAt)}</IndexTable.Cell>
       <AnalyticsCells data={analytics[d.id]} />
+      <IndexTable.Cell>
+        <DiscountStatusToggle
+          discountId={d.id}
+          discountType={d.discountType || "automatic"}
+          status={d.status}
+          inRow
+        />
+      </IndexTable.Cell>
     </IndexTable.Row>
   ));
 
@@ -128,6 +137,7 @@ export default function LinePropertyDiscountList() {
                   { title: "Status" },
                   { title: "Starts" },
                   ...analyticsHeadings,
+                  { title: "Actions" },
                 ]}
               >
                 {rowMarkup}

@@ -43,8 +43,8 @@
   {% endfor %}
 {% endif %}
 
-{% comment %} Only show if progress bar is enabled and there are tiers to display {% endcomment %}
-{% if gwp_config and gwp_config.progressBar.enabled and progress_bar_tiers.size > 0 %}
+{% comment %} Only show if GWP is active, the progress bar is enabled, and there are tiers to display {% endcomment %}
+{% if gwp_config and gwp_config.isActive and gwp_config.progressBar.enabled and progress_bar_tiers.size > 0 %}
   <div class="gwp-progress-bar-container" 
        data-cart-total="{{ cart.total_price }}"
        data-gwp-config="{{ gwp_config | json | escape }}"

@@ -19,6 +19,7 @@ import {
   ChoiceList,
 } from "@shopify/polaris";
 import DateTimePicker from "../components/DateTimePicker";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 function nowLocal() {
   const d = new Date();
@@ -348,6 +349,20 @@ export default function FreeEtchForm() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="500">
+            {!isNew && discount?.status && (
+              <Card>
+                <InlineStack align="space-between" blockAlign="center">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodyMd" fontWeight="medium">Discount status</Text>
+                    <Badge tone={discount.status === "ACTIVE" ? "success" : discount.status === "SCHEDULED" ? "info" : "critical"}>
+                      {discount.status.charAt(0) + discount.status.slice(1).toLowerCase()}
+                    </Badge>
+                  </InlineStack>
+                  <DiscountStatusToggle discountId={discount.nodeId} discountType={discount.discountType} status={discount.status} size="medium" />
+                </InlineStack>
+              </Card>
+            )}
+
             {fetcher.data?.error && (
               <Banner tone="critical">
                 <p>{fetcher.data.error}</p>

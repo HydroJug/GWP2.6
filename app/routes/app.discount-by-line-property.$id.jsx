@@ -16,8 +16,10 @@ import {
   Box,
   ChoiceList,
   Checkbox,
+  Badge,
 } from "@shopify/polaris";
 import DateTimePicker from "../components/DateTimePicker";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 const FUNCTION_TITLE = "Discount by Line Item Property";
 const NAMESPACE = "line_property_discount";
@@ -79,6 +81,7 @@ export const loader = async ({ request, params }) => {
     discount: {
       nodeId: automaticGid,
       discountId: d.discountId,
+      status: d.status,
       title: d.title,
       startsAt: d.startsAt ? d.startsAt.slice(0, 16) : "",
       endsAt: d.endsAt ? d.endsAt.slice(0, 16) : "",
@@ -411,6 +414,20 @@ export default function LinePropertyDiscountForm() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="500">
+            {isEditing && discount?.status && (
+              <Card>
+                <InlineStack align="space-between" blockAlign="center">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodyMd" fontWeight="medium">Discount status</Text>
+                    <Badge tone={discount.status === "ACTIVE" ? "success" : discount.status === "SCHEDULED" ? "info" : "critical"}>
+                      {discount.status.charAt(0) + discount.status.slice(1).toLowerCase()}
+                    </Badge>
+                  </InlineStack>
+                  <DiscountStatusToggle discountId={discount.nodeId} discountType="automatic" status={discount.status} size="medium" />
+                </InlineStack>
+              </Card>
+            )}
+
             <Card>
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">

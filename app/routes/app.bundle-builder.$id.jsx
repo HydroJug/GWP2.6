@@ -23,6 +23,7 @@ import {
 import { DeleteIcon, PlusIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import DateTimePicker from "../components/DateTimePicker";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ export const loader = async ({ request, params }) => {
     codeGid = `gid://shopify/DiscountCodeNode/${rawId}`;
   }
 
-  let d, config;
+  let d, config, resolvedGid;
   if (automaticGid) {
     const res = await admin.graphql(
       `query GetDiscount($id: ID!) {
@@ -67,7 +68,7 @@ export const loader = async ({ request, params }) => {
       { variables: { id: automaticGid } }
     );
     const node = (await res.json()).data?.automaticDiscountNode;
-    if (node) { d = { ...node.automaticDiscount, codes: null }; config = node.metafield?.value ? JSON.parse(node.metafield.value) : {}; }
+    if (node) { d = { ...node.automaticDiscount, codes: null }; config = node.metafield?.value ? JSON.parse(node.metafield.value) : {}; resolvedGid = automaticGid; }
   }
   if (!d && codeGid) {
     const res = await admin.graphql(
@@ -87,7 +88,7 @@ export const loader = async ({ request, params }) => {
       { variables: { id: codeGid } }
     );
     const node = (await res.json()).data?.codeDiscountNode;
-    if (node) { d = node.codeDiscount; config = node.metafield?.value ? JSON.parse(node.metafield.value) : {}; }
+    if (node) { d = node.codeDiscount; config = node.metafield?.value ? JSON.parse(node.metafield.value) : {}; resolvedGid = codeGid; }
   }
   if (!d) return json({ functionId, discount: null, isNew: false, notFound: true });
 
@@ -97,8 +98,10 @@ export const loader = async ({ request, params }) => {
     functionId,
     isNew: false,
     discount: {
+      nodeId: resolvedGid,
       discountId: d.discountId,
       discountType: isAutomatic ? "automatic" : "code",
+      status: d.status,
       title: d.title,
       code: d.codes?.edges?.[0]?.node?.code ?? "",
       startsAt: d.startsAt ? d.startsAt.slice(0, 16) : "",
@@ -444,6 +447,20 @@ export default function BundleBuilderForm() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="500">
+
+            {isEditing && discount?.status && (
+              <Card>
+                <InlineStack align="space-between" blockAlign="center">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodyMd" fontWeight="medium">Discount status</Text>
+                    <Badge tone={discount.status === "ACTIVE" ? "success" : discount.status === "SCHEDULED" ? "info" : "critical"}>
+                      {discount.status.charAt(0) + discount.status.slice(1).toLowerCase()}
+                    </Badge>
+                  </InlineStack>
+                  <DiscountStatusToggle discountId={discount.nodeId} discountType={discount.discountType} status={discount.status} size="medium" />
+                </InlineStack>
+              </Card>
+            )}
 
             <Card>
               <BlockStack gap="400">

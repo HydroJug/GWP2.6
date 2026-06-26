@@ -20,10 +20,11 @@ import {
   statusBadgeTone,
   formatDate,
 } from "../utils/discountList";
-import { setGWPIsActive } from "../lib/storage.server";
+import { syncGWPActiveState } from "../lib/storage.server";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   const [fnRes, listRes] = await Promise.all([
     admin.graphql(`query { shopifyFunctions(first: 25) { nodes { id title apiType } } }`),
@@ -43,14 +44,13 @@ export const loader = async ({ request }) => {
   const listData = await listRes.json();
   const discounts = filterDiscountsByFunction(listData.data, allFunctionIds);
 
-  // Sync isActive in metafield if no active discounts remain
-  const hasActiveDiscounts = discounts.some((d) => d.status === "ACTIVE");
-  if (!hasActiveDiscounts) {
-    try {
-      await setGWPIsActive(admin, false);
-    } catch (e) {
-      console.error("Failed to sync GWP isActive:", e);
-    }
+  // Keep the storefront's GWP active-state in sync with live discount status.
+  // The discounts/* webhooks handle most changes; this is a backstop for cases
+  // they can't catch (e.g. a discount expiring naturally on its end date).
+  try {
+    await syncGWPActiveState(admin, session.shop);
+  } catch (e) {
+    console.error("Failed to sync GWP isActive:", e);
   }
 
   return json({ functionId, discounts });
@@ -78,6 +78,14 @@ export default function GWPConfigIndex() {
       </IndexTable.Cell>
       <IndexTable.Cell>{formatDate(d.startsAt)}</IndexTable.Cell>
       <IndexTable.Cell>{formatDate(d.endsAt)}</IndexTable.Cell>
+      <IndexTable.Cell>
+        <DiscountStatusToggle
+          discountId={d.id}
+          discountType={d.discountType}
+          status={d.status}
+          inRow
+        />
+      </IndexTable.Cell>
     </IndexTable.Row>
   ));
 
@@ -125,6 +133,7 @@ export default function GWPConfigIndex() {
                   { title: "Status" },
                   { title: "Starts" },
                   { title: "Ends" },
+                  { title: "Actions" },
                 ]}
               >
                 {rowMarkup}

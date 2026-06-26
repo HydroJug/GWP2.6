@@ -22,6 +22,7 @@ import {
   formatDate,
 } from "../utils/discountList";
 import { useDiscountAnalytics, AnalyticsCells, analyticsHeadings } from "../components/DiscountAnalytics";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -76,6 +77,14 @@ export default function BuyXYGetZList() {
       </IndexTable.Cell>
       <IndexTable.Cell>{formatDate(d.startsAt)}</IndexTable.Cell>
       <AnalyticsCells data={analytics[d.id]} />
+      <IndexTable.Cell>
+        <DiscountStatusToggle
+          discountId={d.id}
+          discountType={d.discountType}
+          status={d.status}
+          inRow
+        />
+      </IndexTable.Cell>
     </IndexTable.Row>
   ));
 
@@ -131,6 +140,7 @@ export default function BuyXYGetZList() {
                   { title: "Status" },
                   { title: "Starts" },
                   ...analyticsHeadings,
+                  { title: "Actions" },
                 ]}
               >
                 {rowMarkup}

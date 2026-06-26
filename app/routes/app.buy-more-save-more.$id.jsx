@@ -17,9 +17,11 @@ import {
   ChoiceList,
   Thumbnail,
   Divider,
+  Badge,
 } from "@shopify/polaris";
 import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import DateTimePicker from "../components/DateTimePicker";
+import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
@@ -103,8 +105,10 @@ export const loader = async ({ request, params }) => {
     functionId,
     isNew: false,
     discount: {
+      nodeId: resolvedGid,
       discountId: d.discountId,
       discountType: resolvedGid?.includes("DiscountAutomaticNode") ? "automatic" : "code",
+      status: d.status,
       title: d.title,
       code: d.codes?.edges?.[0]?.node?.code ?? "",
       startsAt: d.startsAt ? d.startsAt.slice(0, 16) : "",
@@ -569,6 +573,20 @@ export default function BuyMoreSaveMoreForm() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="500">
+
+            {isEditing && discount?.status && (
+              <Card>
+                <InlineStack align="space-between" blockAlign="center">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodyMd" fontWeight="medium">Discount status</Text>
+                    <Badge tone={discount.status === "ACTIVE" ? "success" : discount.status === "SCHEDULED" ? "info" : "critical"}>
+                      {discount.status.charAt(0) + discount.status.slice(1).toLowerCase()}
+                    </Badge>
+                  </InlineStack>
+                  <DiscountStatusToggle discountId={discount.nodeId} discountType={discount.discountType} status={discount.status} size="medium" />
+                </InlineStack>
+              </Card>
+            )}
 
             <Card>
               <BlockStack gap="400">
