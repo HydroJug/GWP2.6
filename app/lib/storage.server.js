@@ -483,24 +483,45 @@ export async function syncGWPActiveState(admin, shop) {
         .map((f) => f.id)
     );
 
-    const listRes = await admin.graphql(
-      `query {
-        discountNodes(first: 250) {
-          nodes {
-            id
-            discount {
-              ... on DiscountAutomaticApp {
-                title
-                status
-                appDiscountType { functionId }
+    // Filter SERVER-SIDE to active app-discounts only. Without the filter,
+    // stores with many code-based discounts (hundreds of influencer/referral
+    // codes etc.) fill the first 250 nodes with DiscountCodeBasic entries and
+    // the GWP DiscountAutomaticApp lives on a later page that we never fetch,
+    // making syncGWPActiveState incorrectly conclude no active GWP exists and
+    // overwrite isActive=false on every run.
+    //
+    // The query string `status:active type:automatic_app` narrows the result
+    // to exactly the discount type that drives GWP. Pagination is added as a
+    // safety net in case a store ever has > 250 active automatic-app discounts,
+    // which is unrealistic but cheap to handle.
+    const nodes = [];
+    let cursor = null;
+    while (true) {
+      const listRes = await admin.graphql(
+        `query Discounts($cursor: String) {
+          discountNodes(first: 250, after: $cursor, query: "status:active type:automatic_app") {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              discount {
+                ... on DiscountAutomaticApp {
+                  title
+                  status
+                  appDiscountType { functionId }
+                }
               }
             }
           }
-        }
-      }`
-    );
-    const listData = await listRes.json();
-    const nodes = listData.data?.discountNodes?.nodes ?? [];
+        }`,
+        { variables: { cursor } }
+      );
+      const listData = await listRes.json();
+      const page = listData.data?.discountNodes;
+      if (!page) break;
+      nodes.push(...(page.nodes ?? []));
+      if (!page.pageInfo?.hasNextPage) break;
+      cursor = page.pageInfo.endCursor;
+    }
 
     const hasActive = nodes.some((n) => {
       const d = n?.discount;
