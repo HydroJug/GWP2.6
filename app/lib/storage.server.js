@@ -459,13 +459,14 @@ export async function setGWPIsActive(admin, isActive) {
  * Liquid) and the cache file (read by the public settings endpoint).
  *
  * "GWP is active" === at least one GWP discount currently has status ACTIVE.
- * A discount is GWP if it runs on the GWP function (title contains gwp/gift) or
- * its own title says "gwp" (catches legacy / mis-pointed discounts). Keep this
- * predicate in sync with app.gwp-config._index.jsx and the save action.
+ * A discount is GWP if it runs on one of THIS APP's discount functions. Keep
+ * this predicate in sync with app.gwp-config._index.jsx and the save action.
  *
  * Call this whenever discount status may have changed (save, app load, and the
  * discounts/* webhooks). Returns the computed isActive, or null on error.
  */
+export async function syncGWPActiveState(admin, shop) {
+  try {
     // Look up this app's own Shopify Functions. Apps only see their own
     // functions, so this returns hydro-gwp's discount functions.
     const fnRes = await admin.graphql(
