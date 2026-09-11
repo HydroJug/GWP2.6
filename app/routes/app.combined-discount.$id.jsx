@@ -67,7 +67,10 @@ export const loader = async ({ request, params }) => {
           id
           metafield(namespace: "combined_discount", key: "config") { value }
           automaticDiscount {
-            ... on DiscountAutomaticApp { discountId title status startsAt endsAt }
+            ... on DiscountAutomaticApp {
+              discountId title status startsAt endsAt
+              combinesWith { orderDiscounts productDiscounts shippingDiscounts }
+            }
           }
         }
       }`,
@@ -86,6 +89,7 @@ export const loader = async ({ request, params }) => {
             ... on DiscountCodeApp {
               discountId title status startsAt endsAt
               usageLimit appliesOncePerCustomer
+              combinesWith { orderDiscounts productDiscounts shippingDiscounts }
               codes(first: 1) { edges { node { code } } }
             }
           }
@@ -114,6 +118,9 @@ export const loader = async ({ request, params }) => {
       endsAt: d.endsAt ? d.endsAt.slice(0, 16) : "",
       usageLimit: d.usageLimit?.toString() ?? "",
       appliesOncePerCustomer: d.appliesOncePerCustomer ?? false,
+      combinesWithProductDiscounts: d.combinesWith?.productDiscounts ?? false,
+      combinesWithOrderDiscounts: d.combinesWith?.orderDiscounts ?? false,
+      combinesWithShippingDiscounts: d.combinesWith?.shippingDiscounts ?? false,
       discountValueType: config.discountValueType ?? "percentage",
       discountValue: config.discountValue ?? "",
       minimumOrderAmount: config.minimumOrderAmount ?? "",
@@ -150,6 +157,9 @@ export const action = async ({ request, params }) => {
   const endDateTime = formData.get("endDateTime");
   const usageLimit = formData.get("usageLimit");
   const appliesOncePerCustomer = formData.get("appliesOncePerCustomer") === "true";
+  const combinesWithProductDiscounts = formData.get("combinesWithProductDiscounts") === "true";
+  const combinesWithOrderDiscounts = formData.get("combinesWithOrderDiscounts") === "true";
+  const combinesWithShippingDiscounts = formData.get("combinesWithShippingDiscounts") === "true";
   const includesFreeShipping = formData.get("includesFreeShipping") === "true";
   const freeShippingMinimum = formData.get("freeShippingMinimum");
   const maxShippingCost = formData.get("maxShippingCost");
@@ -197,6 +207,15 @@ export const action = async ({ request, params }) => {
   const configMetafield = { namespace: "combined_discount", key: "config", type: "json", value: JSON.stringify(config) };
   const variablesMetafield = { namespace: "combined_discount", key: "variables", type: "json", value: JSON.stringify(variables) };
 
+  // Which other discount classes this discount is allowed to stack with.
+  // Shopify rejects a combination that overlaps the discount's own classes, so
+  // any such userError is surfaced to the merchant from the mutations below.
+  const combinesWith = {
+    productDiscounts: combinesWithProductDiscounts,
+    orderDiscounts: combinesWithOrderDiscounts,
+    shippingDiscounts: combinesWithShippingDiscounts,
+  };
+
   // Determine discount classes based on scope
   const discountClasses = ["ORDER", "SHIPPING"];
   if (discountScope === "product") {
@@ -216,7 +235,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { id: discountId, d: { title, functionId, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, metafields } } }
+          { variables: { id: discountId, d: { title, functionId, combinesWith, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, metafields } } }
         );
         const data = await response.json();
         const errors = data.data?.discountAutomaticAppUpdate?.userErrors ?? [];
@@ -231,7 +250,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { id: discountId, d: { title, functionId, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, usageLimit: usageLimit ? parseInt(usageLimit) : null, appliesOncePerCustomer, metafields } } }
+          { variables: { id: discountId, d: { title, functionId, combinesWith, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, usageLimit: usageLimit ? parseInt(usageLimit) : null, appliesOncePerCustomer, metafields } } }
         );
         const data = await response.json();
         const errors = data.data?.discountCodeAppUpdate?.userErrors ?? [];
@@ -248,7 +267,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { d: { title, functionId, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, metafields } } }
+          { variables: { d: { title, functionId, combinesWith, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, metafields } } }
         );
         const data = await response.json();
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
@@ -264,7 +283,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { d: { title, code, functionId, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, usageLimit: usageLimit ? parseInt(usageLimit) : null, appliesOncePerCustomer, metafields } } }
+          { variables: { d: { title, code, functionId, combinesWith, startsAt, ...(endsAt ? { endsAt } : {}), discountClasses, usageLimit: usageLimit ? parseInt(usageLimit) : null, appliesOncePerCustomer, metafields } } }
         );
         const data = await response.json();
         console.log("[CombinedDiscount] Create code response:", JSON.stringify(data));
@@ -328,6 +347,9 @@ function buildEmpty() {
     endDateTime: "",
     usageLimit: "",
     appliesOncePerCustomer: false,
+    combinesWithProductDiscounts: true,
+    combinesWithOrderDiscounts: true,
+    combinesWithShippingDiscounts: true,
     includesFreeShipping: false,
     freeShippingMinimum: "",
     maxShippingCost: "",
@@ -354,6 +376,9 @@ function buildFromDiscount(d) {
     endDateTime: d.endsAt,
     usageLimit: d.usageLimit,
     appliesOncePerCustomer: d.appliesOncePerCustomer,
+    combinesWithProductDiscounts: d.combinesWithProductDiscounts ?? false,
+    combinesWithOrderDiscounts: d.combinesWithOrderDiscounts ?? false,
+    combinesWithShippingDiscounts: d.combinesWithShippingDiscounts ?? false,
     includesFreeShipping: d.includesFreeShipping,
     freeShippingMinimum: d.freeShippingMinimum || "",
     maxShippingCost: d.maxShippingCost || "",
@@ -640,6 +665,9 @@ export default function CombinedDiscountForm() {
     data.append("endDateTime", form.endDateTime);
     data.append("usageLimit", form.usageLimit);
     data.append("appliesOncePerCustomer", String(form.appliesOncePerCustomer));
+    data.append("combinesWithProductDiscounts", String(form.combinesWithProductDiscounts));
+    data.append("combinesWithOrderDiscounts", String(form.combinesWithOrderDiscounts));
+    data.append("combinesWithShippingDiscounts", String(form.combinesWithShippingDiscounts));
     data.append("includesFreeShipping", String(form.includesFreeShipping));
     data.append("freeShippingMinimum", form.freeShippingMinimum);
     data.append("maxShippingCost", form.maxShippingCost);
@@ -828,6 +856,21 @@ export default function CombinedDiscountForm() {
                     <TextField label="Maximum shipping rate to make free (optional)" type="number" value={form.maxShippingCost} onChange={(v) => set("maxShippingCost", v)} prefix="$" min={0} helpText="Only rates at or below this amount will be made free. Leave empty for all rates." autoComplete="off" />
                   </BlockStack>
                 )}
+              </BlockStack>
+            </Card>
+
+            {/* ── Combinations ── */}
+            <Card>
+              <BlockStack gap="400">
+                <BlockStack gap="100">
+                  <Text as="h2" variant="headingMd">Combinations</Text>
+                  <Text as="p" variant="bodyMd" tone="subdued">Choose which other discounts this one can stack with at checkout.</Text>
+                </BlockStack>
+                <BlockStack gap="200">
+                  <Checkbox label="Product discounts" checked={form.combinesWithProductDiscounts} onChange={(v) => set("combinesWithProductDiscounts", v)} />
+                  <Checkbox label="Order discounts" checked={form.combinesWithOrderDiscounts} onChange={(v) => set("combinesWithOrderDiscounts", v)} />
+                  <Checkbox label="Shipping discounts" checked={form.combinesWithShippingDiscounts} onChange={(v) => set("combinesWithShippingDiscounts", v)} />
+                </BlockStack>
               </BlockStack>
             </Card>
 
