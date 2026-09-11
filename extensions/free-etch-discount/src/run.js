@@ -58,7 +58,8 @@ export function run(input) {
   let baseSubtotalCents = 0;
   for (const line of lines) {
     const pricePerUnit = parseFloat(line.cost.amountPerQuantity.amount) * 100;
-    const etchValue = line.attribute?.value?.trim();
+    // Accept either the visible "etchInfo" or hidden "_etchInfo" line property.
+    const etchValue = (line.etchInfo?.value ?? line.etchInfoHidden?.value)?.trim();
     if (etchValue) {
       const etchInfo = parseRubyHash(etchValue);
       const isCustomUpload = etchInfo?.designType === 'custom-upload';
@@ -79,7 +80,8 @@ export function run(input) {
   const qualifyingLines = [];
 
   for (const line of lines) {
-    const etchValue = line.attribute?.value?.trim();
+    // Accept either the visible "etchInfo" or hidden "_etchInfo" line property.
+    const etchValue = (line.etchInfo?.value ?? line.etchInfoHidden?.value)?.trim();
     if (!etchValue) continue;
 
     const etchInfo = parseRubyHash(etchValue);

@@ -459,55 +459,49 @@ export async function setGWPIsActive(admin, isActive) {
  * Liquid) and the cache file (read by the public settings endpoint).
  *
  * "GWP is active" === at least one GWP discount currently has status ACTIVE.
- * A discount is GWP if it runs on the GWP function (title contains gwp/gift) or
- * its own title says "gwp" (catches legacy / mis-pointed discounts). Keep this
- * predicate in sync with app.gwp-config._index.jsx and the save action.
+ * A discount is GWP if it runs on one of THIS APP's discount functions. Keep
+ * this predicate in sync with app.gwp-config._index.jsx and the save action.
  *
  * Call this whenever discount status may have changed (save, app load, and the
  * discounts/* webhooks). Returns the computed isActive, or null on error.
  */
 export async function syncGWPActiveState(admin, shop) {
   try {
+    // Look up this app's own Shopify Functions. Apps only see their own
+    // functions, so this returns hydro-gwp's discount functions.
     const fnRes = await admin.graphql(
       `query { shopifyFunctions(first: 50) { nodes { id title apiType } } }`
     );
     const fnData = await fnRes.json();
-    const gwpFunctionIds = new Set(
-      (fnData.data?.shopifyFunctions?.nodes ?? [])
-        .filter(
-          (f) =>
-            f.apiType === "discount" &&
-            (f.title?.toLowerCase().includes("gwp") ||
-              f.title?.toLowerCase().includes("gift"))
-        )
-        .map((f) => f.id)
+    const ourFunctions = fnData.data?.shopifyFunctions?.nodes ?? [];
+    const ourDiscountFnIds = new Set(
+      ourFunctions.filter((f) => f.apiType === "discount").map((f) => f.id)
+    );
+    console.log(
+      `[syncGWPActiveState] our discount functions: ${ourDiscountFnIds.size}`,
+      ourFunctions.filter((f) => f.apiType === "discount").map((f) => f.title)
     );
 
     // Filter SERVER-SIDE to active app-discounts only. Without the filter,
     // stores with many code-based discounts (hundreds of influencer/referral
     // codes etc.) fill the first 250 nodes with DiscountCodeBasic entries and
-    // the GWP DiscountAutomaticApp lives on a later page that we never fetch,
-    // making syncGWPActiveState incorrectly conclude no active GWP exists and
-    // overwrite isActive=false on every run.
-    //
-    // The query string `status:active type:automatic_app` narrows the result
-    // to exactly the discount type that drives GWP. Pagination is added as a
-    // safety net in case a store ever has > 250 active automatic-app discounts,
-    // which is unrealistic but cheap to handle.
+    // the GWP DiscountAutomaticApp lives on a later page that we never fetch.
+    // Pagination is added as a safety net.
     const nodes = [];
     let cursor = null;
     while (true) {
       const listRes = await admin.graphql(
         `query Discounts($cursor: String) {
-          discountNodes(first: 250, after: $cursor, query: "status:active type:automatic_app") {
+          discountNodes(first: 250, after: $cursor, query: "status:ACTIVE AND type:automatic_app") {
             pageInfo { hasNextPage endCursor }
             nodes {
               id
               discount {
+                __typename
                 ... on DiscountAutomaticApp {
                   title
                   status
-                  appDiscountType { functionId }
+                  appDiscountType { functionId title }
                 }
               }
             }
@@ -516,6 +510,9 @@ export async function syncGWPActiveState(admin, shop) {
         { variables: { cursor } }
       );
       const listData = await listRes.json();
+      if (listData.errors) {
+        console.error("[syncGWPActiveState] discountNodes query errors:", JSON.stringify(listData.errors));
+      }
       const page = listData.data?.discountNodes;
       if (!page) break;
       nodes.push(...(page.nodes ?? []));
@@ -523,15 +520,25 @@ export async function syncGWPActiveState(admin, shop) {
       cursor = page.pageInfo.endCursor;
     }
 
+    console.log(`[syncGWPActiveState] active automatic_app discounts found: ${nodes.length}`);
+    for (const n of nodes) {
+      const d = n.discount;
+      console.log(`  - "${d?.title}" status=${d?.status} fnId=${d?.appDiscountType?.functionId} fnTitle=${d?.appDiscountType?.title} ownedByUs=${ourDiscountFnIds.has(d?.appDiscountType?.functionId)}`);
+    }
+
+    // A discount counts as GWP-active when:
+    //   1. Its app discount function is one of OUR functions (this app owns it), AND
+    //   2. Its status is ACTIVE.
+    // No title heuristics — title-based matching breaks when the function's
+    // display name is a translation key (`t:name`) or the discount is named
+    // without "GWP" in it.
     const hasActive = nodes.some((n) => {
       const d = n?.discount;
       if (!d) return false;
       const fnId = d.appDiscountType?.functionId;
-      const isGwp =
-        (fnId && gwpFunctionIds.has(fnId)) ||
-        d.title?.toLowerCase().includes("gwp");
-      return isGwp && d.status === "ACTIVE";
+      return ourDiscountFnIds.has(fnId) && d.status === "ACTIVE";
     });
+    console.log(`[syncGWPActiveState] computed hasActive=${hasActive}`);
 
     // Write to the app + shop metafields (read by the theme Liquid).
     await setGWPIsActive(admin, hasActive);

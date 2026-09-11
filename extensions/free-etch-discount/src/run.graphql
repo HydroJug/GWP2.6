@@ -15,7 +15,11 @@ query RunInput {
           }
         }
       }
-      attribute(key: "etchInfo") {
+      etchInfo: attribute(key: "etchInfo") {
+        key
+        value
+      }
+      etchInfoHidden: attribute(key: "_etchInfo") {
         key
         value
       }
