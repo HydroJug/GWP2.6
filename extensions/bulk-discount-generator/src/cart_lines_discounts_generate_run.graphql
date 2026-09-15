@@ -9,6 +9,14 @@ query CartInput($collectionIds: [ID!], $eligibilityTags: [String!]) {
     lines {
       id
       quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+        subtotalAmount {
+          amount
+        }
+      }
       merchandise {
         ... on ProductVariant {
           product {

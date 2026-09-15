@@ -198,6 +198,15 @@ export const action = async ({ request, params }) => {
   if (!prefix) return json({ error: "A code prefix is required." });
   if (isNew && (!generateCount || generateCount < 1)) return json({ error: "Enter how many unique codes to generate." });
   if (generateCount > MAX_GENERATE) return json({ error: `You can generate at most ${MAX_GENERATE.toLocaleString()} codes at a time.` });
+  if (discountValueType === "percentage" && parseFloat(discountValue) > 100) {
+    return json({ error: "Percentage cannot exceed 100%." });
+  }
+  if (customerEligibility === "specific_tags" && customerTags.length === 0) {
+    return json({ error: "Add at least one customer tag, or choose all customers." });
+  }
+  if (customerEligibility === "specific_customers" && selectedCustomers.length === 0) {
+    return json({ error: "Select at least one customer, or choose all customers." });
+  }
 
   const startsAt = startDateTime ? new Date(startDateTime).toISOString() : new Date().toISOString();
   const endsAt = endDateTime ? new Date(endDateTime).toISOString() : null;
@@ -1019,6 +1028,8 @@ export default function BulkDiscountGeneratorForm() {
     if (form.generateCount && parseInt(form.generateCount, 10) > MAX_GENERATE) { shopify.toast.show(`You can generate at most ${MAX_GENERATE.toLocaleString()} codes at a time.`, { isError: true }); return; }
     if (!form.discountValue || parseFloat(form.discountValue) <= 0) { shopify.toast.show("Enter a discount value greater than 0.", { isError: true }); return; }
     if (form.discountValueType[0] === "percentage" && parseFloat(form.discountValue) > 100) { shopify.toast.show("Percentage cannot exceed 100%.", { isError: true }); return; }
+    if (form.customerEligibility[0] === "specific_tags" && form.customerTags.length === 0) { shopify.toast.show("Add at least one customer tag, or choose all customers.", { isError: true }); return; }
+    if (form.customerEligibility[0] === "specific_customers" && form.selectedCustomers.length === 0) { shopify.toast.show("Select at least one customer, or choose all customers.", { isError: true }); return; }
     setIsSubmitting(true);
     const data = new FormData();
     if (isEditing) data.append("discountId", discount.discountId);
@@ -1218,7 +1229,7 @@ export default function BulkDiscountGeneratorForm() {
                 <Text as="h2" variant="headingMd">Discount value</Text>
                 <ChoiceList title="Value type" choices={[{ label: "Percentage off", value: "percentage" }, { label: "Fixed amount off", value: "amount" }]} selected={form.discountValueType} onChange={(v) => set("discountValueType", v)} />
                 <Box maxWidth="200px">
-                  <TextField label={valueLabel} type="number" value={form.discountValue} onChange={(v) => set("discountValue", v)} prefix={form.discountValueType[0] === "amount" ? "$" : undefined} suffix={form.discountValueType[0] === "percentage" ? "%" : undefined} min={0} max={form.discountValueType[0] === "percentage" ? 100 : undefined} autoComplete="off" />
+                  <TextField label={valueLabel} type="number" value={form.discountValue} onChange={(v) => set("discountValue", v)} prefix={form.discountValueType[0] === "amount" ? "$" : undefined} suffix={form.discountValueType[0] === "percentage" ? "%" : undefined} min={0} max={form.discountValueType[0] === "percentage" ? 100 : undefined} helpText={form.discountValueType[0] === "amount" && form.discountScope[0] === "product" ? "Taken off each qualifying item, and never more than that item's price." : undefined} autoComplete="off" />
                 </Box>
                 <TextField label="Minimum order subtotal (optional)" type="number" value={form.minimumOrderAmount} onChange={(v) => set("minimumOrderAmount", v)} prefix="$" min={0} helpText="Leave empty for no minimum" autoComplete="off" />
               </BlockStack>
@@ -1302,7 +1313,11 @@ export default function BulkDiscountGeneratorForm() {
                       value={form.maxApplicationsPerOrder}
                       onChange={(v) => set("maxApplicationsPerOrder", v)}
                       min={1}
-                      helpText="Leave empty to discount all qualifying items."
+                      helpText={
+                        form.discountValueType[0] === "amount"
+                          ? "Fixed amounts are taken off each item, never more than that item's price. Set a max here to cap how many units get the discount."
+                          : "Leave empty to discount all qualifying items."
+                      }
                       autoComplete="off"
                     />
                   </BlockStack>
@@ -1324,13 +1339,13 @@ export default function BulkDiscountGeneratorForm() {
               <BlockStack gap="400">
                 <BlockStack gap="100">
                   <Text as="h2" variant="headingMd">Free shipping</Text>
-                  <Text as="p" variant="bodyMd" tone="subdued">Bundle free shipping so customers only need one code.</Text>
+                  <Text as="p" variant="bodyMd" tone="subdued">Bundle free shipping so customers only need one code. Every eligible rate at checkout is set to $0, not just the cheapest.</Text>
                 </BlockStack>
                 <Checkbox label="Include free shipping with this discount" checked={form.includesFreeShipping} onChange={(v) => set("includesFreeShipping", v)} />
                 {form.includesFreeShipping && (
                   <BlockStack gap="300">
                     <TextField label="Minimum order for free shipping (optional)" type="number" value={form.freeShippingMinimum} onChange={(v) => set("freeShippingMinimum", v)} prefix="$" min={0} helpText={form.minimumOrderAmount ? `Leave empty to use discount minimum ($${form.minimumOrderAmount})` : "Leave empty for no minimum"} autoComplete="off" />
-                    <TextField label="Maximum shipping rate to make free (optional)" type="number" value={form.maxShippingCost} onChange={(v) => set("maxShippingCost", v)} prefix="$" min={0} helpText="Only rates at or below this amount will be made free. Leave empty for all rates." autoComplete="off" />
+                    <TextField label="Maximum shipping rate to make free (optional)" type="number" value={form.maxShippingCost} onChange={(v) => set("maxShippingCost", v)} prefix="$" min={0} helpText="All rates at or below this amount become free. Leave empty to make every shipping rate $0." autoComplete="off" />
                   </BlockStack>
                 )}
               </BlockStack>

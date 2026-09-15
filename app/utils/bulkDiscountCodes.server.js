@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const BULK_ADD_LIMIT = 250;
 
@@ -10,7 +12,7 @@ export function normalizePrefix(raw) {
 function randomSuffix(length = 10) {
   let out = "";
   for (let i = 0; i < length; i++) {
-    out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    out += CODE_CHARS[randomInt(CODE_CHARS.length)];
   }
   return out;
 }

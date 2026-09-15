@@ -35,7 +35,8 @@ export function cartLinesDiscountsGenerateRun(input) {
 
   // ── Customer eligibility ──────────────────────────────────────────────────
   if (customerEligibility === 'specific_tags') {
-    // Tag-based: the input query checks hasAnyTag via $eligibilityTags variable
+    // Empty tag list must not match everyone. hasAnyTag([]) is treated as no match.
+    if (!config.customerTags?.length) return { operations: [] };
     const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
     if (!hasTag) return { operations: [] };
   } else if (customerEligibility === 'specific_customers' && customerIds?.length) {
@@ -53,7 +54,9 @@ export function cartLinesDiscountsGenerateRun(input) {
     }
   }
 
-  const parsedValue = parseFloat(discountValue);
+  const parsedValue = discountValueType === 'percentage'
+    ? Math.min(100, parseFloat(discountValue))
+    : parseFloat(discountValue);
 
   // ── Product-level discount ────────────────────────────────────────────────
   if (discountScope === 'product') {
@@ -83,24 +86,31 @@ export function cartLinesDiscountsGenerateRun(input) {
     for (const line of qualifyingLines) {
       if (remaining <= 0) break;
       const qty = maxApps ? Math.min(line.quantity, remaining) : null;
+      const perItemPrice = parseFloat(line.cost?.amountPerQuantity?.amount ?? "0");
+      const lineFixedAmount = discountValueType === 'amount'
+        ? Math.min(parsedValue, perItemPrice > 0 ? perItemPrice : parsedValue)
+        : parsedValue;
+      if (discountValueType === 'amount' && lineFixedAmount <= 0) continue;
       candidates.push({
         message:
           discountValueType === 'percentage'
             ? `${parsedValue}% off`
-            : `$${parsedValue.toFixed(2)} off`,
+            : `$${lineFixedAmount.toFixed(2)} off`,
         targets: [{ cartLine: { id: line.id, ...(qty !== null ? { quantity: qty } : {}) } }],
         value:
           discountValueType === 'percentage'
             ? { percentage: { value: parsedValue } }
             : {
                 fixedAmount: {
-                  amount: parsedValue.toFixed(2),
+                  amount: lineFixedAmount.toFixed(2),
                   appliesToEachItem: true,
                 },
               },
       });
       if (maxApps) remaining -= (qty ?? line.quantity);
     }
+
+    if (!candidates.length) return { operations: [] };
 
     return {
       operations: [

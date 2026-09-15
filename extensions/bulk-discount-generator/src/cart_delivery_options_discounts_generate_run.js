@@ -29,6 +29,7 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
 
   // ── Customer eligibility ──────────────────────────────────────────────────
   if (config.customerEligibility === 'specific_tags') {
+    if (!config.customerTags?.length) return { operations: [] };
     const hasTag = input.cart.buyerIdentity?.customer?.hasAnyTag;
     if (!hasTag) return { operations: [] };
   } else if (config.customerEligibility === 'specific_customers' && config.customerIds?.length) {
