@@ -451,5 +451,5 @@
       "maxShippingCost": 1000
     }
   },
-  "isActive": true
+  "isActive": false
 }

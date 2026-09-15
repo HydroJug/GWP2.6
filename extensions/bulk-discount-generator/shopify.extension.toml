@@ -2,8 +2,8 @@ api_version = "2026-07"
 
 [[extensions]]
 name = "t:name"
-handle = "new-gwp-discount-function"
-uid = "245cfadc-d41e-5d6d-2d66-12a4eb0baadb40bdb032"
+handle = "bulk-discount-generator"
+uid = "312143a9-08da-4278-887f-6f730d7e3116"
 type = "function"
 
 description = "t:description"
@@ -18,10 +18,14 @@ description = "t:description"
   input_query = "src/cart_delivery_options_discounts_generate_run.graphql"
   export = "cart-delivery-options-discounts-generate-run"
 
+  [extensions.input.variables]
+  namespace = "bulk_discount"
+  key = "variables"
+
   [extensions.build]
   command = ""
-  path = "dist/function.wasm"
+  path = "dist/index.wasm"
 
   [extensions.ui.paths]
-  create = "/app/gwp-config/new"
-  details = "/app/gwp-config/:id"
+  create = "/app/bulk-discount-generator/new"
+  details = "/app/bulk-discount-generator/:id"

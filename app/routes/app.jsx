@@ -32,6 +32,7 @@ export default function App() {
         <Link to="/app/progress-bar">Progress Bar</Link>
         <Link to="/app/free-etch">Free Etch Discount</Link>
         <Link to="/app/discount-by-line-property">Line Item Property Discount</Link>
+        <Link to="/app/bulk-discount-generator">Bulk Discount Generator</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

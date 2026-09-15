@@ -1,0 +1,34 @@
+query CartInput($collectionIds: [ID!], $eligibilityTags: [String!]) {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+    lines {
+      id
+      quantity
+      merchandise {
+        ... on ProductVariant {
+          product {
+            id
+            inAnyCollection(ids: $collectionIds)
+          }
+        }
+      }
+    }
+    buyerIdentity {
+      customer {
+        id
+        hasAnyTag(tags: $eligibilityTags)
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "bulk_discount", key: "config") {
+      value
+    }
+  }
+}
