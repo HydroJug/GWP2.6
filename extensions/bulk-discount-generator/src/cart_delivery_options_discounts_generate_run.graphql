@@ -1,0 +1,32 @@
+query DeliveryInput($eligibilityTags: [String!]) {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+    deliveryGroups {
+      id
+      deliveryOptions {
+        handle
+        title
+        cost {
+          amount
+        }
+      }
+    }
+    buyerIdentity {
+      customer {
+        id
+        hasAnyTag(tags: $eligibilityTags)
+      }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "bulk_discount", key: "config") {
+      value
+    }
+  }
+}

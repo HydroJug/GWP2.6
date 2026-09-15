@@ -101,6 +101,13 @@ const tools = [
     url: "/app/discount-by-line-property",
     cta: "Manage discounts",
   },
+  {
+    title: "Bulk Discount Generator",
+    description: "Create one price rule, then generate hundreds of unique codes that share those terms — each with a prefix you choose.",
+    icon: DiscountIcon,
+    url: "/app/bulk-discount-generator",
+    cta: "Generate codes",
+  },
 ];
 
 export default function HomePage() {
