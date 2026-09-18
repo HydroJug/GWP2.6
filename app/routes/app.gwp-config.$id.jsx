@@ -1006,7 +1006,7 @@ export default function GWPConfigForm() {
 
                           <Checkbox
                             label="Show tier on progress bar"
-                            helpText="Included in the storefront GWP config so Hydrogen can render this tier on a progress bar."
+                            helpText="Included on the storefront-readable shop metafield (gwp.config) so Hydrogen can render this tier on a progress bar."
                             checked={tier.showOnProgressBar ?? false}
                             onChange={(checked) =>
                               handleUpdateTier(tierIndex, { showOnProgressBar: checked })
