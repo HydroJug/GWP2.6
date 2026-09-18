@@ -1,6 +1,6 @@
 {% comment %}
   Gift with Purchase Cart Modal - App Embed Block
-  This block loads the cart modal functionality and progress bar injection when enabled in the theme.
+  This block loads the cart modal functionality when enabled in the theme.
 {% endcomment %}
 
 {% comment %} Get GWP configuration directly from app metafields - no HTTP fetch needed! {% endcomment %}
@@ -806,14 +806,7 @@
         await fetchGWPConfig();
         await getCartData();
         
-        // Inject progress bar if configured
-        if (progressBarConfig && progressBarConfig.enabled && progressBarConfig.selector) {
-          debugLog('Progress bar configured, will inject at:', progressBarConfig.selector, 'position:', progressBarConfig.position);
-          injectProgressBar();
-          monitorCartUpdates();
-        } else {
-          debugLog('Progress bar not enabled or no selector configured. Config:', progressBarConfig);
-        }
+        debugLog('Progress bar is disabled.');
       } catch (error) {
         console.error('🎁 GWP: Error during initialization:', error);
       }

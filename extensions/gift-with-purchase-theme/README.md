@@ -1,6 +1,10 @@
-# GWP Progress Bar - CSS Selector Configuration
+# Gift with Purchase theme extension
 
-This theme extension supports dynamic progress bar placement using CSS selectors. You can configure exactly where the progress bar appears on your store.
+The storefront progress bar is currently disabled. The cart modal embed is still active.
+
+# GWP Progress Bar - CSS Selector Configuration (disabled)
+
+This theme extension previously supported dynamic progress bar placement using CSS selectors. That UI and block are removed for now.
 
 ## How to Use
 

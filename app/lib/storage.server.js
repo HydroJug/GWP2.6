@@ -1,6 +1,30 @@
 // Simple metafield-based storage for GWP settings
 // No database needed - store directly in Shopify app metafields
 
+/** Public GWP payload for Hydrogen / custom storefronts. */
+export function toStorefrontGwpConfig(settings) {
+  return {
+    isActive: settings?.isActive !== false,
+    updatedAt: settings?.updatedAt ?? null,
+    progressBar: settings?.progressBar ?? null,
+    tiers: (settings?.tiers ?? []).map((tier) => ({
+      id: tier.id,
+      name: tier.name,
+      thresholdAmount: tier.thresholdAmount,
+      maxSelections: tier.maxSelections,
+      description: tier.description ?? "",
+      showOnProgressBar: !!tier.showOnProgressBar,
+      giftProductIds: tier.giftProductIds ?? [],
+      giftProducts: (tier.giftProducts ?? tier.displayProducts ?? []).map((product) => ({
+        id: product.id,
+        title: product.title,
+        handle: product.handle ?? null,
+        image: product.image ?? null,
+      })),
+    })),
+  };
+}
+
 export async function getGWPSettings(admin, shop) {
   try {
     const response = await admin.graphql(
