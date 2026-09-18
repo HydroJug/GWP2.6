@@ -1,6 +1,34 @@
 // Simple metafield-based storage for GWP settings
 // No database needed - store directly in Shopify app metafields
 
+/** Public GWP payload for Hydrogen. Omits admin placement config (selectors, modal behavior). */
+export function toStorefrontGwpConfig(settings) {
+  const freeShipping = settings?.progressBar?.freeShipping;
+  return {
+    isActive: settings?.isActive !== false,
+    updatedAt: settings?.updatedAt ?? null,
+    freeShipping: {
+      enabled: !!freeShipping?.enabled,
+      threshold: freeShipping?.enabled ? (freeShipping.threshold ?? null) : null,
+    },
+    tiers: (settings?.tiers ?? []).map((tier) => ({
+      id: tier.id,
+      name: tier.name,
+      thresholdAmount: tier.thresholdAmount,
+      maxSelections: tier.maxSelections,
+      description: tier.description ?? "",
+      showOnProgressBar: !!tier.showOnProgressBar,
+      giftProductIds: tier.giftProductIds ?? [],
+      giftProducts: (tier.giftProducts ?? tier.displayProducts ?? []).map((product) => ({
+        id: product.id,
+        title: product.title,
+        handle: product.handle ?? null,
+        image: product.image ?? null,
+      })),
+    })),
+  };
+}
+
 export async function getGWPSettings(admin, shop) {
   try {
     const response = await admin.graphql(
@@ -26,11 +54,11 @@ export async function getGWPSettings(admin, shop) {
     if (metafield?.value) {
       const settings = JSON.parse(metafield.value);
       
-      // MIGRATION: Fix any old $100 Gold tier thresholds to $120 (12000 cents)
+      // MIGRATION: old $100 Gold tiers (10000 cents) → $70 (7000 cents)
       if (settings.tiers) {
         settings.tiers = settings.tiers.map(tier => {
           if (tier.thresholdAmount === 10000 && (tier.name === 'Gold' || tier.name.toLowerCase().includes('gold'))) {
-            console.log(`Migrating ${tier.name} tier from $100 (10000) to $120 (12000)`);
+            console.log(`Migrating ${tier.name} tier from $100 (10000) to $70 (7000)`);
             return {
               ...tier,
               thresholdAmount: 7000
@@ -341,10 +369,10 @@ export async function saveGWPSettings(admin, shop, settings) {
     };
     
     const settingsJson = JSON.stringify(settingsWithTimestamp);
+    const storefrontJson = JSON.stringify(toStorefrontGwpConfig(settingsWithTimestamp));
 
-    // Save to BOTH app metafield (private) AND shop metafield (public for Storefront API)
+    // App metafield stays private (full admin config). Shop metafield is Storefront PUBLIC_READ.
     const metafields = [
-      // App metafield (private - for admin access)
       {
         ownerId: appInstallationId,
         namespace: "gwp_settings",
@@ -354,14 +382,13 @@ export async function saveGWPSettings(admin, shop, settings) {
       }
     ];
     
-    // Also save to shop metafield if we have shop ID (public - for Storefront API access)
     if (shopId) {
       metafields.push({
         ownerId: shopId,
         namespace: "gwp",
         key: "config",
         type: "json",
-        value: settingsJson
+        value: storefrontJson
       });
     }
 
@@ -434,13 +461,17 @@ export async function setGWPIsActive(admin, isActive) {
     if (!raw) return;
 
     const updated = { ...JSON.parse(raw), isActive };
-    const value = JSON.stringify(updated);
-
     const metafields = [
-      { ownerId: appInstallationId, namespace: "gwp_settings", key: "config", type: "json", value },
+      { ownerId: appInstallationId, namespace: "gwp_settings", key: "config", type: "json", value: JSON.stringify(updated) },
     ];
     if (shopId) {
-      metafields.push({ ownerId: shopId, namespace: "gwp", key: "config", type: "json", value });
+      metafields.push({
+        ownerId: shopId,
+        namespace: "gwp",
+        key: "config",
+        type: "json",
+        value: JSON.stringify(toStorefrontGwpConfig(updated)),
+      });
     }
 
     await admin.graphql(

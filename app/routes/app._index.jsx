@@ -19,7 +19,6 @@ import {
   MobileIcon,
   StoreIcon,
   ChartHistogramGrowthIcon,
-  LayoutSectionIcon,
   AlertDiamondIcon,
 } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -79,13 +78,6 @@ const tools = [
     icon: ChartHistogramGrowthIcon,
     url: "/app/buy-more-save-more",
     cta: "Manage discounts",
-  },
-  {
-    title: "Progress Bar",
-    description: "Configure the cart progress bar that shows gift tier milestones. Operates independently of GWP discounts.",
-    icon: LayoutSectionIcon,
-    url: "/app/progress-bar",
-    cta: "Configure",
   },
   {
     title: "Free Etch Discount",

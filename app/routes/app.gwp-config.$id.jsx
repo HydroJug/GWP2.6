@@ -299,7 +299,7 @@ export const action = async ({ request, params }) => {
 
     try {
       let tiers = JSON.parse(tiersData);
-      // Preserve existing progressBar config — it is now managed by the standalone Progress Bar page
+      // Preserve existing progressBar config so it can be restored later.
       const existingSettings = await getGWPSettings(admin, session.shop);
       const progressBar = existingSettings.progressBar || null;
 
@@ -1006,7 +1006,7 @@ export default function GWPConfigForm() {
 
                           <Checkbox
                             label="Show tier on progress bar"
-                            helpText="Progress bar must be enabled for this to work. Configure it in the Progress Bar settings."
+                            helpText="Included on the storefront-readable shop metafield (gwp.config) so Hydrogen can render this tier on a progress bar."
                             checked={tier.showOnProgressBar ?? false}
                             onChange={(checked) =>
                               handleUpdateTier(tierIndex, { showOnProgressBar: checked })
