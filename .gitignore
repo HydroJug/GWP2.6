@@ -20,6 +20,9 @@ database.sqlite
 
 /extensions/*/dist
 
+# Runtime GWP config cache written by the app
+/cache
+
 # Ignore shopify files created during app dev
 .shopify/*
 .shopify.lock

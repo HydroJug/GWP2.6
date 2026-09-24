@@ -28,8 +28,26 @@ import {
   getOrCreateStorefrontToken,
   listGwpDiscounts,
   deactivateOtherGwpDiscounts,
+  tierProductGids,
 } from "../lib/storage.server";
 
+
+const MODAL_BEHAVIOR_OPTIONS = [
+  { label: "Automatically when threshold is reached", value: "auto" },
+  { label: "On progress bar click", value: "click" },
+  { label: "Both", value: "both" },
+];
+
+function normalizeModalBehavior(value) {
+  return MODAL_BEHAVIOR_OPTIONS.some((o) => o.value === value) ? value : "auto";
+}
+
+function giftTitle(product, variant) {
+  const variantTitle = variant?.title;
+  return variantTitle && variantTitle !== "Default Title"
+    ? `${product.title} - ${variantTitle}`
+    : product.title;
+}
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +164,7 @@ export const loader = async ({ request, params }) => {
                     edges {
                       node {
                         id
+                        title
                         price
                       }
                     }
@@ -215,6 +234,7 @@ export const action = async ({ request, params }) => {
                   edges {
                     node {
                       id
+                      title
                       price
                     }
                   }
@@ -303,7 +323,10 @@ export const action = async ({ request, params }) => {
       let tiers = JSON.parse(tiersData);
       // Preserve existing progressBar config so it can be restored later.
       const existingSettings = await getGWPSettings(admin, session.shop);
-      const progressBar = existingSettings.progressBar || null;
+      const progressBar = {
+        ...(existingSettings.progressBar ?? {}),
+        modalBehavior: normalizeModalBehavior(formData.get("modalBehavior")),
+      };
 
       const tiersWithProducts = await Promise.all(
         tiers.map(async (tier) => {
@@ -351,11 +374,7 @@ export const action = async ({ request, params }) => {
                   variantId: ve.node.id.split("/").pop(),
                   productId: product.id.split("/").pop(),
                   handle: product.handle ?? null,
-                  title:
-                    product.title +
-                    (ve.node.title !== "Default Title"
-                      ? ` - ${ve.node.title}`
-                      : ""),
+                  title: giftTitle(product, ve.node),
                   image:
                     ve.node.image?.url || product.featuredImage?.url || null,
                 }));
@@ -382,11 +401,7 @@ export const action = async ({ request, params }) => {
                 variantId: ve.node.id.split("/").pop(),
                 productId: product.id.split("/").pop(),
                 handle: product.handle ?? null,
-                title:
-                  product.title +
-                  (ve.node.title !== "Default Title"
-                    ? ` - ${ve.node.title}`
-                    : ""),
+                title: giftTitle(product, ve.node),
                 image: product.featuredImage?.url || null,
               }));
             }
@@ -602,19 +617,14 @@ function FloatingDropdown({ anchorRef, visible, onMouseDown, children }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function GWPConfigForm() {
-  const { settings, storefrontToken, shop, discount } = useLoaderData();
+  const { settings, discount } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
 
-  const appUrl =
-    typeof window !== "undefined"
-      ? window.location.origin
-      : "https://gwp-2-6.vercel.app";
-  const scriptUrl = storefrontToken
-    ? `${appUrl}/cart-modal?shop=${shop}&token=${storefrontToken}`
-    : `${appUrl}/cart-modal?shop=${shop}`;
-
   const [tiers, setTiers] = useState(settings.tiers || []);
+  const [modalBehavior, setModalBehavior] = useState(
+    normalizeModalBehavior(settings.progressBar?.modalBehavior)
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [collectionSearchQuery, setCollectionSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -791,10 +801,11 @@ export default function GWPConfigForm() {
       {
         action: "saveSettings",
         tiers: JSON.stringify(sortedTiers),
+        modalBehavior,
       },
       { method: "POST" }
     );
-  }, [tiers, fetcher]);
+  }, [tiers, modalBehavior, fetcher]);
 
   const formatPrice = (amount) => `$${(parseInt(amount) / 100).toFixed(2)}`;
 
@@ -867,37 +878,13 @@ export default function GWPConfigForm() {
                   </p>
                 </Banner>
 
-                {storefrontToken && (
-                  <Banner tone="success" title="Script Installation">
-                    <BlockStack gap="200">
-                      <Text>
-                        Add this script to your theme to enable the GWP modal:
-                      </Text>
-                      <Box
-                        background="bg-surface-secondary"
-                        padding="300"
-                        borderRadius="100"
-                      >
-                        <Text variant="bodyMd" fontFamily="mono" breakWord>
-                          {`<script src="${scriptUrl}"></script>`}
-                        </Text>
-                      </Box>
-                      <Text variant="bodySm" tone="subdued">
-                        The Storefront Access Token is included in the URL for
-                        reliable config loading.
-                      </Text>
-                    </BlockStack>
-                  </Banner>
-                )}
-
-                {!storefrontToken && (
-                  <Banner tone="warning" title="Script Installation">
-                    <Text>
-                      Save your settings to generate a Storefront Access Token.
-                      This enables reliable config loading on your storefront.
-                    </Text>
-                  </Banner>
-                )}
+                <Select
+                  label="Show gift modal"
+                  options={MODAL_BEHAVIOR_OPTIONS}
+                  value={modalBehavior}
+                  onChange={setModalBehavior}
+                  helpText="Saved to the storefront-readable gwp.config metafield as modalBehavior (auto, click, or both)."
+                />
 
                 <InlineStack align="space-between">
                   <Text as="h3" variant="headingMd">
@@ -1351,7 +1338,7 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
       name: tier.name,
       thresholdAmount: tier.thresholdAmount,
       maxSelections: tier.maxSelections,
-      productIds: tier.collectionProductIds || tier.giftProductIds || [],
+      productIds: tierProductGids(tier),
       collectionId: tier.collectionId || null,
       collectionHandle: tier.collectionHandle || null,
     }));
