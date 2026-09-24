@@ -56,10 +56,13 @@ export function cartLinesDiscountsGenerateRun(input) {
             if (!tier.name) {
               tier.name = `Tier ${index + 1}`;
             }
-            // Ensure productIds is an array
-            if (!Array.isArray(tier.productIds)) {
-              tier.productIds = [];
-            }
+            // Cart lines report product GIDs; older configs stored bare numeric ids.
+            tier.productIds = (Array.isArray(tier.productIds) ? tier.productIds : [])
+              .filter(Boolean)
+              .map((id) => {
+                const value = String(id);
+                return value.startsWith("gid://") ? value : `gid://shopify/Product/${value}`;
+              });
             return tier;
           });
           console.log("🎁 Using tier configuration from metafield:");

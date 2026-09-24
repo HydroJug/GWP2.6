@@ -8,12 +8,13 @@ export function isGwpDiscountFunction(fn) {
   return title.includes("gwp") || title.includes("gift");
 }
 
-/** Public GWP payload for Hydrogen. Omits admin placement config (selectors, modal behavior). */
+/** Public GWP payload for Hydrogen. Omits admin placement config (selectors, position). */
 export function toStorefrontGwpConfig(settings) {
   const freeShipping = settings?.progressBar?.freeShipping;
   return {
     isActive: settings?.isActive !== false,
     updatedAt: settings?.updatedAt ?? null,
+    modalBehavior: settings?.progressBar?.modalBehavior ?? "auto",
     freeShipping: {
       enabled: !!freeShipping?.enabled,
       threshold: freeShipping?.enabled ? (freeShipping.threshold ?? null) : null,
@@ -29,6 +30,12 @@ export function toStorefrontGwpConfig(settings) {
       giftProducts: storefrontGifts(tier),
     })),
   };
+}
+
+/** Product GIDs for a tier, in the format the GWP discount function matches on. */
+export function tierProductGids(tier) {
+  const ids = tier.collectionId ? tier.collectionProductIds : tier.giftProductIds;
+  return (ids ?? []).map((id) => toGid("Product", id)).filter(Boolean);
 }
 
 function toGid(type, id) {

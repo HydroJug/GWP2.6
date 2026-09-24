@@ -1,6 +1,6 @@
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
-import { saveGWPSettings } from "../lib/storage.server";
+import { saveGWPSettings, tierProductGids } from "../lib/storage.server";
 
 export const action = async ({ request }) => {
   try {
@@ -244,8 +244,7 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers) {
       name: tier.name,
       thresholdAmount: tier.thresholdAmount,
       maxSelections: tier.maxSelections || 1,
-      // Use collection product IDs if available, otherwise fall back to individual giftProductIds
-      productIds: tier.collectionProductIds || tier.giftProductIds || [],
+      productIds: tierProductGids(tier),
       collectionId: tier.collectionId || null,
       collectionHandle: tier.collectionHandle || null
     }));
