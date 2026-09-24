@@ -1,439 +1,177 @@
 {
   "tiers": [
     {
-      "id": "tier1782495318981",
-      "thresholdAmount": 7400,
-      "name": "Test",
+      "id": "tier1790264147969",
+      "thresholdAmount": 7000,
+      "name": "Silver Tier",
       "giftProductIds": [],
       "giftProducts": [],
       "maxSelections": 1,
       "description": "Choose 1 free gift",
-      "collectionId": "535372857645",
-      "collectionHandle": "traveler-20oz",
-      "collectionTitle": "Traveler (20oz)",
-      "showOnProgressBar": true,
+      "collectionId": "543195791661",
+      "collectionHandle": "boots",
+      "collectionTitle": "Boots",
+      "showOnProgressBar": false,
       "collectionProductIds": [
-        "gid://shopify/Product/10244706140461",
-        "gid://shopify/Product/10244706173229",
-        "gid://shopify/Product/10244706205997",
-        "gid://shopify/Product/10244706238765",
-        "gid://shopify/Product/10244706271533",
-        "gid://shopify/Product/10244706304301",
-        "gid://shopify/Product/10244706337069",
-        "gid://shopify/Product/10244706369837",
-        "gid://shopify/Product/10244706402605",
-        "gid://shopify/Product/10244720165165",
-        "gid://shopify/Product/10244720197933",
-        "gid://shopify/Product/10244720230701",
-        "gid://shopify/Product/10244720525613",
-        "gid://shopify/Product/10244720853293",
-        "gid://shopify/Product/10244720886061",
-        "gid://shopify/Product/10244720951597",
-        "gid://shopify/Product/10244721738029",
-        "gid://shopify/Product/10244722000173",
-        "gid://shopify/Product/10244722950445",
-        "gid://shopify/Product/10244724392237",
-        "gid://shopify/Product/10244724883757",
-        "gid://shopify/Product/10244725309741",
-        "gid://shopify/Product/10244725965101",
-        "gid://shopify/Product/10244726784301",
-        "gid://shopify/Product/10244727275821",
-        "gid://shopify/Product/10244727669037",
-        "gid://shopify/Product/10244729176365",
-        "gid://shopify/Product/10244732617005",
-        "gid://shopify/Product/10244732649773",
-        "gid://shopify/Product/10244737335597",
-        "gid://shopify/Product/10244737532205",
-        "gid://shopify/Product/10244738580781",
-        "gid://shopify/Product/10244741628205",
-        "gid://shopify/Product/10244745855277",
-        "gid://shopify/Product/10244746182957",
-        "gid://shopify/Product/10244746215725",
-        "gid://shopify/Product/10244746248493",
-        "gid://shopify/Product/10244746576173",
-        "gid://shopify/Product/10244746608941",
-        "gid://shopify/Product/10244746641709",
-        "gid://shopify/Product/10244746674477",
-        "gid://shopify/Product/10244746740013",
-        "gid://shopify/Product/10244750704941",
-        "gid://shopify/Product/10244750836013",
-        "gid://shopify/Product/10244750999853",
-        "gid://shopify/Product/10244753850669",
-        "gid://shopify/Product/10244753981741",
-        "gid://shopify/Product/10244754276653",
-        "gid://shopify/Product/10244754538797",
-        "gid://shopify/Product/10244754571565",
-        "gid://shopify/Product/10244754604333",
-        "gid://shopify/Product/10244754866477",
-        "gid://shopify/Product/10244755882285",
-        "gid://shopify/Product/10244755947821",
-        "gid://shopify/Product/10244756603181",
-        "gid://shopify/Product/10244756996397",
-        "gid://shopify/Product/10244757193005",
-        "gid://shopify/Product/10244760469805",
-        "gid://shopify/Product/10244760764717",
-        "gid://shopify/Product/10244760863021"
+        "gid://shopify/Product/10327029252397",
+        "gid://shopify/Product/10327028859181",
+        "gid://shopify/Product/10326968271149",
+        "gid://shopify/Product/10326963749165"
       ],
       "displayProducts": [
         {
-          "variantId": "51954872320301",
-          "productId": "10244706140461",
-          "title": "Crocodile",
+          "variantId": "52282298564909",
+          "productId": "10327029252397",
+          "handle": "sandstone-20oz-traveler-boot",
+          "title": "Sandstone Traveler Boot",
           "image": null
         },
         {
-          "variantId": "51954872353069",
-          "productId": "10244706173229",
-          "title": "Cherry Cola",
+          "variantId": "52282298106157",
+          "productId": "10327028859181",
+          "handle": "coastal-cowgirl-20oz-traveler-boot",
+          "title": "Coastal Cowgirl Traveler Boot",
           "image": null
         },
         {
-          "variantId": "51954872385837",
-          "productId": "10244706205997",
-          "title": "Vintage Christmas",
+          "variantId": "52282169295149",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Black",
           "image": null
         },
         {
-          "variantId": "51954872418605",
-          "productId": "10244706238765",
-          "title": "Teddy",
+          "variantId": "52282169327917",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Cream",
           "image": null
         },
         {
-          "variantId": "51954872451373",
-          "productId": "10244706271533",
-          "title": "Holiday Plaid",
+          "variantId": "52282169360685",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Lime Rickey",
           "image": null
         },
         {
-          "variantId": "51954872484141",
-          "productId": "10244706304301",
-          "title": "After Hours",
+          "variantId": "52282169393453",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Orchid",
           "image": null
         },
         {
-          "variantId": "51954872516909",
-          "productId": "10244706337069",
-          "title": "Maraschino",
+          "variantId": "52282169426221",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Pink Sand",
           "image": null
         },
         {
-          "variantId": "51954872549677",
-          "productId": "10244706369837",
-          "title": "Champagne Check",
+          "variantId": "52282169458989",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Pink Sugar",
           "image": null
         },
         {
-          "variantId": "51954872582445",
-          "productId": "10244706402605",
-          "title": "Rose",
+          "variantId": "52282169491757",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Riptide",
           "image": null
         },
         {
-          "variantId": "51954897748269",
-          "productId": "10244720165165",
-          "title": "Bouquet",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Bouquet-WPI-1_c60221c2-5a8f-4032-8aed-33b8df507e98.png?v=1774984069"
-        },
-        {
-          "variantId": "51954897781037",
-          "productId": "10244720197933",
-          "title": "Cherish",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Cherish-WPI-1.png?v=1774984071"
-        },
-        {
-          "variantId": "51954897813805",
-          "productId": "10244720230701",
-          "title": "Keepsake",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Keepsake-WPI-1.png?v=1774984074"
-        },
-        {
-          "variantId": "51954898108717",
-          "productId": "10244720525613",
-          "title": "Lilac",
+          "variantId": "52282169524525",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Sage",
           "image": null
         },
         {
-          "variantId": "51954898469165",
-          "productId": "10244720853293",
-          "title": "Jane",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Jane-WPI-1.png?v=1774984114"
-        },
-        {
-          "variantId": "51954898501933",
-          "productId": "10244720886061",
-          "title": "Jessica",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Jessica-WPI-1.png?v=1774984116"
-        },
-        {
-          "variantId": "51954898600237",
-          "productId": "10244720951597",
-          "title": "Utah Mom",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-UtahMom-WPI-1.png?v=1774984118"
-        },
-        {
-          "variantId": "51954899353901",
-          "productId": "10244721738029",
-          "title": "Bandana",
+          "variantId": "52282169557293",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Bubblegum",
           "image": null
         },
         {
-          "variantId": "51954899648813",
-          "productId": "10244722000173",
-          "title": "Duck Camo",
+          "variantId": "52282169590061",
+          "productId": "10326968271149",
+          "handle": "traveler-boot-20-oz",
+          "title": "Traveler Boot (20 oz) - Sapphire",
           "image": null
         },
         {
-          "variantId": "51954901516589",
-          "productId": "10244722950445",
-          "title": "Sweet Pea",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Sweetpea-WPI-1_2_b87cf507-e485-4d59-99bc-7b5acac3e2c0.png?v=1774984194"
+          "variantId": "52282157891885",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Pink Sand",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954904138029",
-          "productId": "10244724392237",
-          "title": "Flannel",
-          "image": null
+          "variantId": "52282157924653",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Cream",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954904826157",
-          "productId": "10244724883757",
-          "title": "Spice",
-          "image": null
+          "variantId": "52282157957421",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Sage",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954905645357",
-          "productId": "10244725309741",
-          "title": "Clay",
-          "image": null
+          "variantId": "52282157990189",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Bubblegum",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954906464557",
-          "productId": "10244725965101",
-          "title": "Rosewood",
-          "image": null
+          "variantId": "52282158022957",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Lilac",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954908365101",
-          "productId": "10244726784301",
-          "title": "Mocha Tortoise",
-          "image": null
+          "variantId": "52282158055725",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Honeydew",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954909315373",
-          "productId": "10244727275821",
-          "title": "Be Mine",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-BeMine-WPI_1212dbde-7dca-4e84-97b3-8e69e9de974c.png?v=1774984355"
+          "variantId": "52282158088493",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Teal",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954910953773",
-          "productId": "10244727669037",
-          "title": "Queen of Hearts",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-QueenofHearts-WPI_71fc4ef1-64c0-48d2-a376-26a68bb9d088.png?v=1774984371"
+          "variantId": "52282158121261",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Mauve",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954915115309",
-          "productId": "10244729176365",
-          "title": "Quilted Americana",
-          "image": null
+          "variantId": "52282158154029",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Navy",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         },
         {
-          "variantId": "51954920587565",
-          "productId": "10244732617005",
-          "title": "Cape Cod",
-          "image": null
-        },
-        {
-          "variantId": "51954920620333",
-          "productId": "10244732649773",
-          "title": "DSG Holiday Skate",
-          "image": null
-        },
-        {
-          "variantId": "51954939101485",
-          "productId": "10244737335597",
-          "title": "Black Tie POS 20oz Traveler",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-BlackTie1-WPI_aff5b12a-bab3-4fa8-ba96-bf51883ddbdc.png?v=1774984788"
-        },
-        {
-          "variantId": "51954939298093",
-          "productId": "10244737532205",
-          "title": "Savanna POS 20oz Traveler",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/TRVL20-Savanna1-AmzPI_8064f843-2330-40ec-a94f-f01017424253.jpg?v=1774984798"
-        },
-        {
-          "variantId": "51954939691309",
-          "productId": "10244738580781",
-          "title": "Alumni Red",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/510ERMkuSbL_d3de49be-7f76-4b4e-97d9-ed66cb97f73d.jpg?v=1774984817"
-        },
-        {
-          "variantId": "51954940248365",
-          "productId": "10244741628205",
-          "title": "Cherries - Cherries",
-          "image": null
-        },
-        {
-          "variantId": "51954944573741",
-          "productId": "10244745855277",
-          "title": "Hydrangea - Hydrangea",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Hydrangea-4_0e5da570-6a67-44f2-ba29-e79e33301b19.png?v=1774984960"
-        },
-        {
-          "variantId": "51954944868653",
-          "productId": "10244746182957",
-          "title": "Wildrose",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Wild_Rose-1_d9884b85-e6d8-4610-9b64-9da06f11f8d7.png?v=1774984976"
-        },
-        {
-          "variantId": "51954944901421",
-          "productId": "10244746215725",
-          "title": "Wildflower",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-Wildflower-1_6917388e-49b1-470b-9ed7-8ba70da25d0e.png?v=1774984977"
-        },
-        {
-          "variantId": "51954944966957",
-          "productId": "10244746248493",
-          "title": "Iris - Iris",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Iris-4_a354433b-2136-40c5-8bef-f722c41e168c.png?v=1774984980"
-        },
-        {
-          "variantId": "51954945294637",
-          "productId": "10244746576173",
-          "title": "Sports",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-Sports-1_1_eeda0c92-96c9-4c2f-b3ae-027c2dcacadc.png?v=1774984997"
-        },
-        {
-          "variantId": "51954945327405",
-          "productId": "10244746608941",
-          "title": "Daisy Checkers",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-DaisyCheckers-1_1_db1095a4-880a-42a6-9ea6-c39c70e937e5.png?v=1774984999"
-        },
-        {
-          "variantId": "51954945360173",
-          "productId": "10244746641709",
-          "title": "Dinosaur",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Dinosaur-1_1_9a12b551-b595-44b2-af09-0c41c6ee751d.png?v=1774985001"
-        },
-        {
-          "variantId": "51954945392941",
-          "productId": "10244746674477",
-          "title": "Cowgirl",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Cowgirl-1_1_e4240e7a-997c-4454-9d25-144598b2dcac.png?v=1774985002"
-        },
-        {
-          "variantId": "51954945556781",
-          "productId": "10244746740013",
-          "title": "Bows",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-Bows-1_1_5b961362-8034-4042-a954-c2a0ab9bb3e3.png?v=1774985004"
-        },
-        {
-          "variantId": "51954949980461",
-          "productId": "10244750704941",
-          "title": "Pink Strawberry - Pink Strawberry",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-PinkStrawberries-4_e1d34278-bc9b-423c-bb94-d69989713ecf.png?v=1774985138"
-        },
-        {
-          "variantId": "51954950144301",
-          "productId": "10244750836013",
-          "title": "Cream Strawberry",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-CreamStrawberries-1_1ee05029-b9c9-41fc-b345-6944e1000a60.png?v=1774985144"
-        },
-        {
-          "variantId": "51954950308141",
-          "productId": "10244750999853",
-          "title": "Farmers Market - Farmers Market",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-FarmersMarket-4_07ce1104-ee54-4128-a776-238b82cd3634.png?v=1774985153"
-        },
-        {
-          "variantId": "51954955223341",
-          "productId": "10244753850669",
-          "title": "Main Squeeze - Main Squeeze",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-MainSqueeze-4_21b9b83d-2628-48af-839d-150d587259c9.png?v=1774985297"
-        },
-        {
-          "variantId": "51954955354413",
-          "productId": "10244753981741",
-          "title": "Sunny Days - Sunny Days",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-SunnyDays-4_9f78fd68-13b9-42d3-8b44-2c7eaec91973.png?v=1774985304"
-        },
-        {
-          "variantId": "51954955682093",
-          "productId": "10244754276653",
-          "title": "XOXO - XOXO",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-XOXO-4_cc180696-c8b7-4ab7-bfd7-4f07900cb71f.png?v=1774985318"
-        },
-        {
-          "variantId": "51954955944237",
-          "productId": "10244754538797",
-          "title": "Bubblegum Checkers",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-BubblegumCheckers-1_c92f7cb1-9f37-45c6-be20-69b0f2887e28.png?v=1774985329"
-        },
-        {
-          "variantId": "51954956009773",
-          "productId": "10244754571565",
-          "title": "Cobalt Checkers - Cobalt Checkers",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-CobaltCheckers-4_bb52c809-88a4-4cb5-bb15-b2b43c91061a.png?v=1774985331"
-        },
-        {
-          "variantId": "51954956042541",
-          "productId": "10244754604333",
-          "title": "Lavender Checkers - Lavender Checkers",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-LavenderCheckers-4_697873d5-0af3-4797-a9c9-f760c186fd60.png?v=1774985333"
-        },
-        {
-          "variantId": "51954956632365",
-          "productId": "10244754866477",
-          "title": "Honeydew Checkers - Honeydew Checkers",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-HoneydewCheckers-4_fe654319-2f99-433d-a420-37af199ebca5.png?v=1774985342"
-        },
-        {
-          "variantId": "51954957418797",
-          "productId": "10244755882285",
-          "title": "Lavender",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-Lavender-1_b9b5a711-36af-40b7-8811-385afd3f2132.png?v=1774985366"
-        },
-        {
-          "variantId": "51954957451565",
-          "productId": "10244755947821",
-          "title": "Camo",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-Camo-1_ddaf4aa0-f6ed-461b-b2ac-6425a3af9d28.png?v=1774985369"
-        },
-        {
-          "variantId": "51954958336301",
-          "productId": "10244756603181",
-          "title": "Cloud",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-Product_Images-TRVL_20-Cloud-1_4b1d7dee-bdb7-4593-b4cd-9058c2c07c81.png?v=1774985389"
-        },
-        {
-          "variantId": "51954958696749",
-          "productId": "10244756996397",
-          "title": "Pecan - Pecan",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/web-ProductImages-BF24-TRVL20-Pecan-4_b1e9f4c5-f464-4f94-a466-a01a9df78f86.png?v=1774985399"
-        },
-        {
-          "variantId": "51954958926125",
-          "productId": "10244757193005",
-          "title": "Cottage Core - Cottage Core",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-TRVL20-CottageCore-4_ca688cde-4c5d-4ff4-84aa-b46cfa303783.png?v=1774985407"
-        },
-        {
-          "variantId": "51954966462765",
-          "productId": "10244760469805",
-          "title": "Navy - Navy",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Navy_2b7e7522-93bf-4e01-acc4-574b6d33da22.jpg?v=1774985499"
-        },
-        {
-          "variantId": "51954966757677",
-          "productId": "10244760764717",
-          "title": "Candy Coated - Candy Coated",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-SpecialEdition-CandyCoated20oz-4_f8f580ed-b1cc-4d70-9127-58525cfb86c9.png?v=1774985507"
-        },
-        {
-          "variantId": "51954967871789",
-          "productId": "10244760863021",
-          "title": "Aubrie Floral - Aubrie Floral",
-          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-Traveler20oz-BloomBack_5c6f9af7-f6d1-42b3-9081-023c67890fa9.png?v=1774985512"
+          "variantId": "52282158186797",
+          "productId": "10326963749165",
+          "handle": "traveler-boot-40oz",
+          "title": "Traveler Boot (40oz) - Summer Peach",
+          "image": "https://cdn.shopify.com/s/files/1/0936/4773/3037/files/Web-ProductImages-CoreBootswTrav-PinkSand_a6aa8254-d631-4c6a-a546-2c92ae6c2447.png?v=1786068098"
         }
       ]
     }

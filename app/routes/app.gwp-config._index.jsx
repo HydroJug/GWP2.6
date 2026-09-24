@@ -20,7 +20,7 @@ import {
   statusBadgeTone,
   formatDate,
 } from "../utils/discountList";
-import { syncGWPActiveState } from "../lib/storage.server";
+import { isGwpDiscountFunction, syncGWPActiveState } from "../lib/storage.server";
 import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
 export const loader = async ({ request }) => {
@@ -32,12 +32,7 @@ export const loader = async ({ request }) => {
   ]);
 
   const fnData = await fnRes.json();
-  const gwpFns = (fnData.data?.shopifyFunctions?.nodes ?? []).filter(
-    (f) =>
-      f.apiType === "discount" &&
-      (f.title?.toLowerCase().includes("gwp") ||
-        f.title?.toLowerCase().includes("gift"))
-  );
+  const gwpFns = (fnData.data?.shopifyFunctions?.nodes ?? []).filter(isGwpDiscountFunction);
   const functionId = gwpFns.length ? gwpFns[gwpFns.length - 1].id : null;
   const allFunctionIds = gwpFns.map((f) => f.id);
 

@@ -1,6 +1,13 @@
 // Simple metafield-based storage for GWP settings
 // No database needed - store directly in Shopify app metafields
 
+/** Keep in sync with the GWP list page, which filters discounts the same way. */
+export function isGwpDiscountFunction(fn) {
+  if (fn?.apiType !== "discount") return false;
+  const title = fn.title?.toLowerCase() ?? "";
+  return title.includes("gwp") || title.includes("gift");
+}
+
 /** Public GWP payload for Hydrogen. Omits admin placement config (selectors, modal behavior). */
 export function toStorefrontGwpConfig(settings) {
   const freeShipping = settings?.progressBar?.freeShipping;
@@ -19,14 +26,52 @@ export function toStorefrontGwpConfig(settings) {
       description: tier.description ?? "",
       showOnProgressBar: !!tier.showOnProgressBar,
       giftProductIds: tier.giftProductIds ?? [],
-      giftProducts: (tier.giftProducts ?? tier.displayProducts ?? []).map((product) => ({
-        id: product.id,
-        title: product.title,
-        handle: product.handle ?? null,
-        image: product.image ?? null,
-      })),
+      giftProducts: storefrontGifts(tier),
     })),
   };
+}
+
+function toGid(type, id) {
+  if (!id) return null;
+  const value = String(id);
+  return value.startsWith("gid://") ? value : `gid://shopify/${type}/${value}`;
+}
+
+/**
+ * One entry per gift variant, for both product- and collection-sourced tiers.
+ * Collection tiers keep `giftProducts: []`, so `displayProducts` (built on save)
+ * is the only list populated for every tier type.
+ */
+function storefrontGifts(tier) {
+  const display = Array.isArray(tier.displayProducts) ? tier.displayProducts : [];
+  if (display.length) {
+    const handles = new Map(
+      (tier.giftProducts ?? []).map((p) => [toGid("Product", p.id), p.handle])
+    );
+    return display.map((gift) => {
+      const id = toGid("Product", gift.productId);
+      return {
+        id,
+        variantId: toGid("ProductVariant", gift.variantId),
+        title: gift.title,
+        handle: gift.handle ?? handles.get(id) ?? null,
+        image: gift.image ?? null,
+      };
+    });
+  }
+
+  return (tier.giftProducts ?? []).flatMap((product) =>
+    (product.variants?.edges ?? []).map(({ node }) => ({
+      id: toGid("Product", product.id),
+      variantId: toGid("ProductVariant", node.id),
+      title:
+        node.title && node.title !== "Default Title"
+          ? `${product.title} - ${node.title}`
+          : product.title,
+      handle: product.handle ?? null,
+      image: node.image?.url ?? product.featuredImage?.url ?? null,
+    }))
+  );
 }
 
 export async function getGWPSettings(admin, shop) {
@@ -505,12 +550,11 @@ export async function syncGWPActiveState(admin, shop) {
     );
     const fnData = await fnRes.json();
     const ourFunctions = fnData.data?.shopifyFunctions?.nodes ?? [];
-    const ourDiscountFnIds = new Set(
-      ourFunctions.filter((f) => f.apiType === "discount").map((f) => f.id)
-    );
+    const gwpFunctions = ourFunctions.filter(isGwpDiscountFunction);
+    const ourDiscountFnIds = new Set(gwpFunctions.map((f) => f.id));
     console.log(
-      `[syncGWPActiveState] our discount functions: ${ourDiscountFnIds.size}`,
-      ourFunctions.filter((f) => f.apiType === "discount").map((f) => f.title)
+      `[syncGWPActiveState] GWP discount functions: ${ourDiscountFnIds.size}`,
+      gwpFunctions.map((f) => f.title)
     );
 
     // Filter SERVER-SIDE to active app-discounts only. Without the filter,
@@ -518,12 +562,14 @@ export async function syncGWPActiveState(admin, shop) {
     // codes etc.) fill the first 250 nodes with DiscountCodeBasic entries and
     // the GWP DiscountAutomaticApp lives on a later page that we never fetch.
     // Pagination is added as a safety net.
+    // `automatic_app` is not a valid search value and silently matches nothing;
+    // `type:app` alone also returns DiscountCodeApp, hence `method:automatic`.
     const nodes = [];
     let cursor = null;
     while (true) {
       const listRes = await admin.graphql(
         `query Discounts($cursor: String) {
-          discountNodes(first: 250, after: $cursor, query: "status:ACTIVE AND type:automatic_app") {
+          discountNodes(first: 250, after: $cursor, query: "status:ACTIVE AND method:automatic AND type:app") {
             pageInfo { hasNextPage endCursor }
             nodes {
               id
@@ -551,18 +597,15 @@ export async function syncGWPActiveState(admin, shop) {
       cursor = page.pageInfo.endCursor;
     }
 
-    console.log(`[syncGWPActiveState] active automatic_app discounts found: ${nodes.length}`);
+    console.log(`[syncGWPActiveState] active automatic app discounts found: ${nodes.length}`);
     for (const n of nodes) {
       const d = n.discount;
       console.log(`  - "${d?.title}" status=${d?.status} fnId=${d?.appDiscountType?.functionId} fnTitle=${d?.appDiscountType?.title} ownedByUs=${ourDiscountFnIds.has(d?.appDiscountType?.functionId)}`);
     }
 
-    // A discount counts as GWP-active when:
-    //   1. Its app discount function is one of OUR functions (this app owns it), AND
-    //   2. Its status is ACTIVE.
-    // No title heuristics — title-based matching breaks when the function's
-    // display name is a translation key (`t:name`) or the discount is named
-    // without "GWP" in it.
+    // A discount counts as GWP-active when its function is one of this app's
+    // GWP discount functions and its status is ACTIVE. Other discount types
+    // from this app (Combined, Bundle Builder, etc.) must not keep GWP on.
     const hasActive = nodes.some((n) => {
       const d = n?.discount;
       if (!d) return false;
@@ -603,41 +646,26 @@ export async function syncGWPActiveState(admin, shop) {
 }
 
 /**
- * Enforce the "only one live GWP discount" rule. Deactivates every GWP discount
- * except the one being kept (ACTIVE → deactivate, SCHEDULED → delete so it can't
- * activate later; EXPIRED is already off).
- *
- * Choosing which to keep:
- *   - `keepNodeId` given (app toggle / save flow): keep that discount — but only
- *     if it's itself a GWP discount, so activating a non-GWP discount never
- *     touches GWP discounts.
- *   - `keepNodeId` omitted (webhook, where the payload's id format isn't
- *     reliable): if 2+ GWP discounts are ACTIVE, keep the most-recently-updated
- *     one (the one just turned on in the native admin) and deactivate the rest.
- *     If 0 or 1 are active, there's nothing to enforce.
- *
- * Returns true if enforcement ran, false if it was a no-op.
+ * Every automatic discount running on this app's GWP function, any status.
+ * Returns `{ functionIds, discounts: [{ nodeId, title, status, updatedAt }] }`.
  */
-export async function enforceSingleActiveGWP(admin, keepNodeId = null) {
-  try {
-    const fnRes = await admin.graphql(
-      `query { shopifyFunctions(first: 50) { nodes { id title apiType } } }`
-    );
-    const fnData = await fnRes.json();
-    const gwpFunctionIds = new Set(
-      (fnData.data?.shopifyFunctions?.nodes ?? [])
-        .filter(
-          (f) =>
-            f.apiType === "discount" &&
-            (f.title?.toLowerCase().includes("gwp") ||
-              f.title?.toLowerCase().includes("gift"))
-        )
-        .map((f) => f.id)
-    );
+export async function listGwpDiscounts(admin) {
+  const fnRes = await admin.graphql(
+    `query { shopifyFunctions(first: 50) { nodes { id title apiType } } }`
+  );
+  const fnData = await fnRes.json();
+  const functionIds = (fnData.data?.shopifyFunctions?.nodes ?? [])
+    .filter(isGwpDiscountFunction)
+    .map((f) => f.id);
+  const functionIdSet = new Set(functionIds);
 
-    const listRes = await admin.graphql(
-      `query {
-        discountNodes(first: 250) {
+  const discounts = [];
+  let cursor = null;
+  while (true) {
+    const res = await admin.graphql(
+      `query GwpDiscounts($cursor: String) {
+        discountNodes(first: 250, after: $cursor, query: "method:automatic AND type:app") {
+          pageInfo { hasNextPage endCursor }
           nodes {
             id
             discount {
@@ -650,73 +678,93 @@ export async function enforceSingleActiveGWP(admin, keepNodeId = null) {
             }
           }
         }
-      }`
+      }`,
+      { variables: { cursor } }
     );
-    const listData = await listRes.json();
-    const nodes = listData.data?.discountNodes?.nodes ?? [];
+    const data = await res.json();
+    if (data.errors) {
+      throw new Error(data.errors.map((e) => e.message).join(", "));
+    }
+    const page = data.data?.discountNodes;
+    if (!page) break;
+    for (const n of page.nodes ?? []) {
+      const d = n.discount;
+      if (!functionIdSet.has(d?.appDiscountType?.functionId)) continue;
+      discounts.push({
+        nodeId: n.id,
+        title: d.title,
+        status: d.status,
+        updatedAt: d.updatedAt,
+      });
+    }
+    if (!page.pageInfo?.hasNextPage) break;
+    cursor = page.pageInfo.endCursor;
+  }
 
-    const isGwp = (d) => {
-      if (!d) return false;
-      const fnId = d.appDiscountType?.functionId;
-      return (
-        (fnId && gwpFunctionIds.has(fnId)) ||
-        d.title?.toLowerCase().includes("gwp")
-      );
-    };
+  return { functionIds, discounts };
+}
 
-    const gwpNodes = nodes.filter((n) => isGwp(n.discount));
-    if (gwpNodes.length === 0) return false;
+/**
+ * Turn off every GWP discount in `discounts` except `keepNodeId`. ACTIVE ones
+ * are deactivated; SCHEDULED ones are deleted so they can't go live later.
+ */
+export async function deactivateOtherGwpDiscounts(admin, discounts, keepNodeId) {
+  for (const d of discounts) {
+    if (d.nodeId === keepNodeId || d.status === "EXPIRED") continue;
+    const mutation =
+      d.status === "SCHEDULED"
+        ? `mutation ($id: ID!) {
+            discountAutomaticDelete(id: $id) {
+              deletedAutomaticDiscountId
+              userErrors { field message }
+            }
+          }`
+        : `mutation ($id: ID!) {
+            discountAutomaticDeactivate(id: $id) {
+              automaticDiscountNode { id }
+              userErrors { field message }
+            }
+          }`;
+    try {
+      const res = await admin.graphql(mutation, { variables: { id: d.nodeId } });
+      const data = await res.json();
+      const result = data.data?.discountAutomaticDelete ?? data.data?.discountAutomaticDeactivate;
+      if (result?.userErrors?.length) {
+        console.error(`Failed to turn off GWP discount ${d.nodeId}:`, result.userErrors);
+      }
+    } catch (e) {
+      console.error(`Failed to turn off GWP discount ${d.nodeId}:`, e.message);
+    }
+  }
+}
 
-    // Resolve which discount to keep active.
+/**
+ * Enforce the "only one live GWP discount" rule.
+ *
+ *   - `keepNodeId` given (app toggle / save flow): keep that discount, but only
+ *     if it's a GWP discount, so activating a non-GWP discount changes nothing.
+ *   - `keepNodeId` omitted (webhook): if 2+ GWP discounts are ACTIVE, keep the
+ *     most recently updated one. Otherwise there's nothing to enforce.
+ *
+ * Returns true if enforcement ran, false if it was a no-op.
+ */
+export async function enforceSingleActiveGWP(admin, keepNodeId = null) {
+  try {
+    const { discounts } = await listGwpDiscounts(admin);
+    if (discounts.length === 0) return false;
+
     let keepId = null;
-    if (keepNodeId && gwpNodes.some((n) => n.id === keepNodeId)) {
-      keepId = keepNodeId;
-    } else if (!keepNodeId) {
-      // Recency mode (webhook): only act when more than one GWP discount is
-      // live; keep whichever was updated most recently.
-      const active = gwpNodes.filter((n) => n.discount.status === "ACTIVE");
+    if (keepNodeId) {
+      if (discounts.some((d) => d.nodeId === keepNodeId)) keepId = keepNodeId;
+    } else {
+      const active = discounts.filter((d) => d.status === "ACTIVE");
       if (active.length <= 1) return false;
-      active.sort(
-        (a, b) =>
-          new Date(b.discount.updatedAt) - new Date(a.discount.updatedAt)
-      );
-      keepId = active[0].id;
+      active.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      keepId = active[0].nodeId;
     }
     if (!keepId) return false;
 
-    for (const n of gwpNodes) {
-      if (n.id === keepId) continue;
-      const d = n.discount;
-      if (d.status === "EXPIRED") continue; // already off
-      try {
-        if (d.status === "SCHEDULED") {
-          await admin.graphql(
-            `mutation ($id: ID!) {
-              discountAutomaticDelete(id: $id) {
-                deletedAutomaticDiscountId
-                userErrors { field message }
-              }
-            }`,
-            { variables: { id: n.id } }
-          );
-        } else {
-          await admin.graphql(
-            `mutation ($id: ID!) {
-              discountAutomaticDeactivate(id: $id) {
-                automaticDiscountNode { id }
-                userErrors { field message }
-              }
-            }`,
-            { variables: { id: n.id } }
-          );
-        }
-      } catch (e) {
-        console.error(
-          `enforceSingleActiveGWP: failed to deactivate ${n.id}:`,
-          e.message
-        );
-      }
-    }
+    await deactivateOtherGwpDiscounts(admin, discounts, keepId);
     return true;
   } catch (err) {
     console.error("enforceSingleActiveGWP failed:", err);

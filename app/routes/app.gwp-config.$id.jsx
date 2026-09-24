@@ -26,6 +26,8 @@ import {
   getGWPSettings,
   saveGWPSettings,
   getOrCreateStorefrontToken,
+  listGwpDiscounts,
+  deactivateOtherGwpDiscounts,
 } from "../lib/storage.server";
 
 
@@ -316,6 +318,7 @@ export const action = async ({ request, params }) => {
                           node {
                             id
                             title
+                            handle
                             featuredImage { url }
                             variants(first: 10) {
                               edges {
@@ -347,6 +350,7 @@ export const action = async ({ request, params }) => {
                 return product.variants.edges.map((ve) => ({
                   variantId: ve.node.id.split("/").pop(),
                   productId: product.id.split("/").pop(),
+                  handle: product.handle ?? null,
                   title:
                     product.title +
                     (ve.node.title !== "Default Title"
@@ -377,6 +381,7 @@ export const action = async ({ request, params }) => {
               return variants.map((ve) => ({
                 variantId: ve.node.id.split("/").pop(),
                 productId: product.id.split("/").pop(),
+                handle: product.handle ?? null,
                 title:
                   product.title +
                   (ve.node.title !== "Default Title"
@@ -1320,53 +1325,8 @@ export default function GWPConfigForm() {
 
 async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
   try {
-    const existingDiscountsResponse = await admin.graphql(`
-      query {
-        discountNodes(first: 250) {
-          nodes {
-            id
-            discount {
-              ... on DiscountAutomaticApp {
-                title
-                status
-                discountId
-                appDiscountType { functionId }
-              }
-            }
-          }
-        }
-      }
-    `);
-    const existingDiscountsData = await existingDiscountsResponse.json();
-    const allDiscounts =
-      existingDiscountsData.data?.discountNodes?.nodes || [];
-
-    const functionResponse = await admin.graphql(`
-      query {
-        shopifyFunctions(first: 50) {
-          nodes { id title apiType }
-        }
-      }
-    `);
-    const functionData = await functionResponse.json();
-
-    let targetFunctionId = null;
-    if (functionData.data?.shopifyFunctions?.nodes?.length > 0) {
-      // Match ONLY the GWP function. Matching on "discount"/"cart" is too broad —
-      // this app has many discount functions (combined-discount, pos-only-discount,
-      // free-etch-discount, discount-by-line-property, …) whose titles contain
-      // "discount", so a loose match would create the GWP discount against the
-      // wrong functionId. That made it invisible in the GWP list (which filters by
-      // gwp/gift functions) and broke native-admin editing. Keep this predicate in
-      // sync with the list loader in app.gwp-config._index.jsx.
-      const gwpFunction = functionData.data.shopifyFunctions.nodes.find(
-        (node) =>
-          (node.title?.toLowerCase().includes("gwp") ||
-            node.title?.toLowerCase().includes("gift")) &&
-          node.apiType === "discount"
-      );
-      targetFunctionId = gwpFunction?.id;
-    }
+    const { functionIds, discounts: gwpDiscounts } = await listGwpDiscounts(admin);
+    const targetFunctionId = functionIds[0];
 
     if (!targetFunctionId) {
       // Do NOT fall back to "any discount function" — that's what caused GWP
@@ -1376,80 +1336,15 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
       );
     }
 
-    // Collect every existing GWP discount. A discount is "GWP" if it runs on the
-    // GWP function, or — to catch legacy / previously mis-pointed discounts — if
-    // its title says "gwp". Other discount types (combined-discount, buy-xy-get-z,
-    // free-etch, …) have their own functionIds and non-GWP titles, so they are
-    // never touched.
-    const gwpDiscounts = [];
-    for (const node of allDiscounts) {
-      const discount = node?.discount;
-      const discountFunctionId = discount?.appDiscountType?.functionId;
-      if (!discount || !discountFunctionId) continue;
-      const title = discount?.title?.toLowerCase() || "";
-      const isGwpDiscount =
-        discountFunctionId === targetFunctionId || title.includes("gwp");
-      if (!isGwpDiscount) continue;
-      gwpDiscounts.push({
-        nodeId: node.id,
-        discountId: discount.discountId,
-        status: discount.status,
-      });
-    }
-
-    // Choose the discount to update in place:
-    //   1. the one the merchant clicked into (params.id), if it's a GWP discount;
-    //   2. otherwise the currently-active GWP discount;
-    //   3. otherwise none → we'll create a fresh one below.
-    const clicked =
-      clickedId && clickedId !== "new"
-        ? gwpDiscounts.find((d) => d.nodeId === clickedId)
-        : null;
+    // Editing an existing GWP discount updates it in place; "new" always creates
+    // a fresh discount. Either way, every other GWP discount is turned off after
+    // the save succeeds, so a failed save never leaves the store with none live.
     const keeper =
-      clicked || gwpDiscounts.find((d) => d.status === "ACTIVE") || null;
-
-    // Turn off every OTHER GWP discount so only one stays active.
-    for (const d of gwpDiscounts) {
-      if (keeper && d.nodeId === keeper.nodeId) continue;
-      if (d.status === "EXPIRED") continue; // already inactive
-      try {
-        if (d.status === "SCHEDULED") {
-          // Not yet live — `endsAt: now` would be before its future startsAt
-          // (invalid), and leaving it would let a second GWP discount activate
-          // later. Delete it so only the keeper can ever be active.
-          await admin.graphql(
-            `mutation discountAutomaticDelete($id: ID!) {
-              discountAutomaticDelete(id: $id) {
-                deletedAutomaticDiscountId
-                userErrors { field message }
-              }
-            }`,
-            { variables: { id: d.discountId } }
-          );
-        } else {
-          // ACTIVE — deactivate it (preserves the node + its analytics history).
-          await admin.graphql(
-            `mutation discountAutomaticDeactivate($id: ID!) {
-              discountAutomaticDeactivate(id: $id) {
-                automaticDiscountNode { id }
-                userErrors { field message }
-              }
-            }`,
-            { variables: { id: d.discountId } }
-          );
-        }
-      } catch (error) {
-        console.error(
-          `Error deactivating GWP discount ${d.discountId}:`,
-          error.message
-        );
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+      clickedId && clickedId !== "new"
+        ? gwpDiscounts.find((d) => d.nodeId === clickedId) ?? null
+        : null;
 
     const functionId = targetFunctionId;
-    if (!functionId) throw new Error("GWP discount function not found");
 
     const tiersConfig = tiers.map((tier) => ({
       id: tier.id,
@@ -1481,7 +1376,7 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
         }`,
         {
           variables: {
-            id: keeper.discountId,
+            id: keeper.nodeId,
             automaticAppDiscount: {
               title: uniqueTitle,
               // Re-arm the schedule so an edited discount is active now with no
@@ -1520,7 +1415,7 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
             userErrors { field message }
           }
         }`,
-        { variables: { id: keeper.discountId } }
+        { variables: { id: keeper.nodeId } }
       );
 
       // Refresh the discount's gwp.tiers metafield (read by the checkout
@@ -1553,6 +1448,7 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
           `Discount updated but config failed: ${mfErrors[0].message}`
         );
       }
+      await deactivateOtherGwpDiscounts(admin, gwpDiscounts, keeper.nodeId);
       return;
     }
 
@@ -1603,6 +1499,9 @@ async function createOrUpdateAutomaticDiscount(admin, shop, tiers, clickedId) {
         `GraphQL errors: ${createData.errors.map((e) => e.message).join(", ")}`
       );
     }
+
+    const createdId = createData.data?.discountAutomaticAppCreate?.automaticAppDiscount?.discountId;
+    if (createdId) await deactivateOtherGwpDiscounts(admin, gwpDiscounts, createdId);
   } catch (error) {
     console.error("Error creating/updating automatic discount:", error);
     throw error;
