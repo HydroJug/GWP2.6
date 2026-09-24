@@ -2,9 +2,9 @@
 
 client_id = "708929f2fb4528d6eef438d7918e7d3a"
 name = "Hydro-GWP"
-handle = "hydro-gwp"
 application_url = "https://gwp-2-6.vercel.app/"
 embedded = true
+handle = "hydro-gwp"
 
 [build]
 automatically_update_urls_on_dev = true
@@ -13,20 +13,20 @@ automatically_update_urls_on_dev = true
 api_version = "2025-10"
 
   [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+  topics = [ "discounts/create", "discounts/update", "discounts/delete" ]
+  uri = "/webhooks/discounts"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
   uri = "/webhooks/app/scopes_update"
 
   [[webhooks.subscriptions]]
-  topics = [ "discounts/create", "discounts/update", "discounts/delete" ]
-  uri = "/webhooks/discounts"
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,write_products,write_cart_transforms,read_discounts,write_discounts,read_customers,read_publications"
+scopes = "read_customers,read_discounts,read_products,read_publications,write_cart_transforms,write_discounts,write_products"
 
 [auth]
 redirect_urls = [
