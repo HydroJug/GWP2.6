@@ -9,7 +9,19 @@ export function normalizePrefix(raw) {
   return clean.endsWith("-") ? clean : `${clean}-`;
 }
 
-function randomSuffix(length = 10) {
+// Below 8 random characters, codes become guessable once tens of thousands are live.
+export const MIN_CODE_LENGTH = 8;
+export const MAX_CODE_LENGTH = 32;
+export const DEFAULT_CODE_LENGTH = 10;
+
+/** Returns a valid length, or null if `raw` is set but out of range. */
+export function parseCodeLength(raw) {
+  if (raw === null || raw === undefined || raw === "") return DEFAULT_CODE_LENGTH;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= MIN_CODE_LENGTH && n <= MAX_CODE_LENGTH ? n : null;
+}
+
+function randomSuffix(length) {
   let out = "";
   for (let i = 0; i < length; i++) {
     out += CODE_CHARS[randomInt(CODE_CHARS.length)];
@@ -17,13 +29,13 @@ function randomSuffix(length = 10) {
   return out;
 }
 
-export function generateCodes(prefix, count) {
+export function generateCodes(prefix, count, length = DEFAULT_CODE_LENGTH) {
   const codes = [];
   const seen = new Set();
   let guard = 0;
   while (codes.length < count && guard < count * 20) {
     guard += 1;
-    const code = `${prefix}${randomSuffix()}`;
+    const code = `${prefix}${randomSuffix(length)}`;
     if (seen.has(code)) continue;
     seen.add(code);
     codes.push(code);

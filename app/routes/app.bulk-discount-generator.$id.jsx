@@ -1,7 +1,15 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useFetcher, useNavigate } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
-import { generateCodes, normalizePrefix as normalizePrefixServer, readConfig } from "../utils/bulkDiscountCodes.server";
+import {
+  DEFAULT_CODE_LENGTH,
+  MAX_CODE_LENGTH,
+  MIN_CODE_LENGTH,
+  generateCodes,
+  normalizePrefix as normalizePrefixServer,
+  parseCodeLength,
+  readConfig,
+} from "../utils/bulkDiscountCodes.server";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import {
@@ -50,8 +58,9 @@ export const loader = async ({ request, params }) => {
     (f) => f.apiType === "discount" && f.title === "Bulk Discount Generator"
   );
   const functionId = fn?.id ?? null;
+  const codeLengthLimits = { min: MIN_CODE_LENGTH, max: MAX_CODE_LENGTH, default: DEFAULT_CODE_LENGTH };
 
-  if (isNew) return json({ functionId, discount: null, isNew: true });
+  if (isNew) return json({ functionId, codeLengthLimits, discount: null, isNew: true });
 
   const rawId = params.id;
   let automaticGid, codeGid;
@@ -106,10 +115,11 @@ export const loader = async ({ request, params }) => {
     const node = (await res.json()).data?.codeDiscountNode;
     if (node) { d = node.codeDiscount; config = node.metafield?.value ? JSON.parse(node.metafield.value) : {}; resolvedGid = codeGid; }
   }
-  if (!d) return json({ functionId, discount: null, isNew: false, notFound: true });
+  if (!d) return json({ functionId, codeLengthLimits, discount: null, isNew: false, notFound: true });
 
   return json({
     functionId,
+    codeLengthLimits,
     isNew: false,
     discount: {
       nodeId: resolvedGid,
@@ -118,6 +128,7 @@ export const loader = async ({ request, params }) => {
       status: d.status,
       title: d.title,
       prefix: config.prefix ?? "",
+      codeLength: String(parseCodeLength(config.codeLength) ?? DEFAULT_CODE_LENGTH),
       codesCount: d.codesCount?.count ?? config.codesGenerated ?? 0,
       targetCount: config.targetCount ?? d.codesCount?.count ?? config.codesGenerated ?? 0,
       startsAt: d.startsAt ? d.startsAt.slice(0, 16) : "",
@@ -189,13 +200,16 @@ export const action = async ({ request, params }) => {
   const selectedCustomers = JSON.parse(formData.get("selectedCustomers") || "[]");
   const customerTags = JSON.parse(formData.get("customerTags") || "[]");
   const prefixRaw = formData.get("prefix")?.trim() ?? "";
+  const codeLength = parseCodeLength(formData.get("codeLength"));
   const generateCount = parseInt(formData.get("generateCount") || "0", 10);
   const existingCodesCount = parseInt(formData.get("existingCodesCount") || "0", 10);
 
   if (!functionId) return json({ error: "Bulk Discount Generator function is not deployed yet." });
 
   const prefix = normalizePrefixServer(prefixRaw);
-  if (!prefix) return json({ error: "A code prefix is required." });
+  if (codeLength === null) {
+    return json({ error: `Code length must be a whole number from ${MIN_CODE_LENGTH} to ${MAX_CODE_LENGTH}.` });
+  }
   if (isNew && (!generateCount || generateCount < 1)) return json({ error: "Enter how many unique codes to generate." });
   if (generateCount > MAX_GENERATE) return json({ error: `You can generate at most ${MAX_GENERATE.toLocaleString()} codes at a time.` });
   if (discountValueType === "percentage" && parseFloat(discountValue) > 100) {
@@ -222,10 +236,11 @@ export const action = async ({ request, params }) => {
       ? existingCodesCount + generateCount
       : (existingTargetCount || existingCodesCount);
   const codesGenerated = isNew ? 1 : existingCodesCount;
-  const firstCode = isNew ? generateCodes(prefix, 1)[0] : null;
+  const firstCode = isNew ? generateCodes(prefix, 1, codeLength)[0] : null;
 
   const config = {
     prefix: prefixRaw.toUpperCase().replace(/[^A-Z0-9-]/g, ""),
+    codeLength,
     codesGenerated,
     codesSubmitted: addingMore
       ? existingCodesCount
@@ -364,9 +379,18 @@ function nowLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function buildEmpty() {
+const SAMPLE_SUFFIX = "A7K2M9PQZXB4H8N3RT6WC5YDJ2F9LG";
+
+function exampleCode(prefix, length) {
+  const n = parseInt(length, 10);
+  const size = Number.isInteger(n) && n > 0 ? n : 10;
+  return `${normalizePrefix(prefix)}${SAMPLE_SUFFIX.repeat(2).slice(0, size)}`;
+}
+
+function buildEmpty(defaultCodeLength) {
   return {
     prefix: "",
+    codeLength: String(defaultCodeLength),
     generateCount: "100",
     title: "",
     discountValueType: ["percentage"],
@@ -396,6 +420,7 @@ function buildEmpty() {
 function buildFromDiscount(d) {
   return {
     prefix: d.prefix || "",
+    codeLength: d.codeLength,
     generateCount: "",
     title: d.title,
     discountValueType: [d.discountValueType || "percentage"],
@@ -761,13 +786,13 @@ function UniqueCodesCard({ nodeId, postForm, shopify, refreshKey, onTotalChange,
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function BulkDiscountGeneratorForm() {
-  const { functionId, discount, isNew, notFound } = useLoaderData();
+  const { functionId, codeLengthLimits, discount, isNew, notFound } = useLoaderData();
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const shopify = useAppBridge();
   const isEditing = !isNew && !!discount;
 
-  const [form, setForm] = useState(() => isEditing ? buildFromDiscount(discount) : buildEmpty());
+  const [form, setForm] = useState(() => isEditing ? buildFromDiscount(discount) : buildEmpty(codeLengthLimits.default));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [job, setJob] = useState(null);
   const [exportProgress, setExportProgress] = useState(null);
@@ -910,7 +935,7 @@ export default function BulkDiscountGeneratorForm() {
         return;
       }
       shopify.toast.show(isEditing ? "Price rule updated." : "Price rule created.");
-      if (!isEditing) setForm(buildEmpty());
+      if (!isEditing) setForm(buildEmpty(codeLengthLimits.default));
       else set("generateCount", "");
       setIsSubmitting(false);
     } else if (fetcher.data.error) {
@@ -1022,7 +1047,11 @@ export default function BulkDiscountGeneratorForm() {
   }, [discount, form.prefix, postForm, shopify]);
 
   const handleSubmit = useCallback(() => {
-    if (!form.prefix.trim()) { shopify.toast.show("A code prefix is required.", { isError: true }); return; }
+    const codeLength = Number(form.codeLength);
+    if (!Number.isInteger(codeLength) || codeLength < codeLengthLimits.min || codeLength > codeLengthLimits.max) {
+      shopify.toast.show(`Code length must be a whole number from ${codeLengthLimits.min} to ${codeLengthLimits.max}.`, { isError: true });
+      return;
+    }
     if (!form.title.trim()) { shopify.toast.show("Title is required.", { isError: true }); return; }
     if (!isEditing && (!form.generateCount || parseInt(form.generateCount, 10) < 1)) { shopify.toast.show("Enter how many unique codes to generate.", { isError: true }); return; }
     if (form.generateCount && parseInt(form.generateCount, 10) > MAX_GENERATE) { shopify.toast.show(`You can generate at most ${MAX_GENERATE.toLocaleString()} codes at a time.`, { isError: true }); return; }
@@ -1034,6 +1063,7 @@ export default function BulkDiscountGeneratorForm() {
     const data = new FormData();
     if (isEditing) data.append("discountId", discount.discountId);
     data.append("prefix", form.prefix);
+    data.append("codeLength", form.codeLength);
     data.append("generateCount", form.generateCount || "0");
     data.append("existingCodesCount", String(liveCodesCount ?? discount?.codesCount ?? 0));
     data.append("existingTargetCount", String(discount?.targetCount ?? 0));
@@ -1061,7 +1091,7 @@ export default function BulkDiscountGeneratorForm() {
     data.append("selectedCustomers", JSON.stringify(form.selectedCustomers));
     data.append("customerTags", JSON.stringify(form.customerTags));
     fetcher.submit(data, { method: "POST" });
-  }, [form, fetcher, functionId, shopify, isEditing, discount, liveCodesCount]);
+  }, [form, fetcher, functionId, shopify, isEditing, discount, liveCodesCount, codeLengthLimits]);
 
   const handleCodesTotal = useCallback((n) => {
     setLiveCodesCount((prev) => Math.max(prev, n));
@@ -1144,15 +1174,32 @@ export default function BulkDiscountGeneratorForm() {
               <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">Price rule</Text>
                 <TextField label="Title" value={form.title} onChange={(v) => set("title", v)} placeholder="e.g., Summer unique codes" helpText="Internal name for this set of unique codes" autoComplete="off" />
-                <TextField
-                  label="Code prefix"
-                  value={form.prefix}
-                  onChange={(v) => set("prefix", v.toUpperCase())}
-                  placeholder="e.g., SUMMER"
-                  helpText="Each unique code is this prefix plus a random suffix, like SUMMER-A7K2M9PQZX."
-                  autoComplete="off"
-                  disabled={isEditing}
-                />
+                <InlineStack gap="300" wrap={false} blockAlign="start">
+                  <Box width="100%">
+                    <TextField
+                      label="Code prefix (optional)"
+                      value={form.prefix}
+                      onChange={(v) => set("prefix", v.toUpperCase())}
+                      placeholder="e.g., SUMMER"
+                      helpText={`Codes will look like ${exampleCode(form.prefix, form.codeLength)}.`}
+                      autoComplete="off"
+                      disabled={isEditing}
+                    />
+                  </Box>
+                  <Box minWidth="180px">
+                    <TextField
+                      label="Random characters"
+                      type="number"
+                      value={form.codeLength}
+                      onChange={(v) => set("codeLength", v)}
+                      min={codeLengthLimits.min}
+                      max={codeLengthLimits.max}
+                      helpText={`${codeLengthLimits.min}–${codeLengthLimits.max}, not counting the prefix`}
+                      autoComplete="off"
+                      disabled={isEditing}
+                    />
+                  </Box>
+                </InlineStack>
                 {isEditing ? (
                   <BlockStack gap="300">
                     <Banner tone="info">
