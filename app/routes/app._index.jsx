@@ -95,7 +95,7 @@ const tools = [
   },
   {
     title: "Bulk Discount Generator",
-    description: "Create one price rule, then generate hundreds of unique codes that share those terms — each with a prefix you choose.",
+    description: "Create one price rule, then generate hundreds of unique codes that share those terms — with an optional prefix and the code length you choose.",
     icon: DiscountIcon,
     url: "/app/bulk-discount-generator",
     cta: "Generate codes",

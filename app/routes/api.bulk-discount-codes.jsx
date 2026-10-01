@@ -1,11 +1,13 @@
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import {
+  DEFAULT_CODE_LENGTH,
   fetchBulkCreation,
   fetchCodePage,
   fetchCodesCount,
   generateCodes,
   normalizePrefix,
+  parseCodeLength,
   readConfig,
   startRedeemCodeBulkAdd,
   writeConfig,
@@ -67,10 +69,11 @@ export const action = async ({ request }) => {
 
     if (intent === "generateBatch") {
       const nodeId = formData.get("nodeId");
-      const prefix = normalizePrefix(formData.get("prefix") || "");
-      if (!nodeId || !prefix) return json({ error: "Missing discount or prefix." });
+      if (!nodeId) return json({ error: "Missing discount id." });
 
       const config = await readConfig(admin, nodeId);
+      const prefix = normalizePrefix(config.prefix ?? "");
+      const codeLength = parseCodeLength(config.codeLength) ?? DEFAULT_CODE_LENGTH;
       const targetCount = config.targetCount ?? 0;
       const live = await fetchCodesCount(admin, nodeId);
       const submittedCount = Math.max(live.count, config.codesSubmitted ?? 0);
@@ -144,7 +147,7 @@ export const action = async ({ request }) => {
         return json(donePayload(live.count, verify));
       }
 
-      const codes = generateCodes(prefix, Math.min(CODES_PER_REQUEST, remaining));
+      const codes = generateCodes(prefix, Math.min(CODES_PER_REQUEST, remaining), codeLength);
       const jobId = await startRedeemCodeBulkAdd(admin, nodeId, codes);
 
       const latest = await readConfig(admin, nodeId);
