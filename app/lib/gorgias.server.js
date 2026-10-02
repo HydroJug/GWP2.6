@@ -31,7 +31,7 @@ export function gorgiasSecretForShop(shop) {
 export function verifyGorgiasSecret(authorizationHeader, shop) {
   const expected = gorgiasSecretForShop(shop);
   if (!expected) return false;
-  const provided = Buffer.from(authorizationHeader?.replace(/^Bearer\s+/i, "") ?? "");
+  const provided = Buffer.from(authorizationHeader?.trim().replace(/^Bearer\s+/i, "") ?? "");
   const expectedBuf = Buffer.from(expected);
   return provided.length === expectedBuf.length && timingSafeEqual(provided, expectedBuf);
 }

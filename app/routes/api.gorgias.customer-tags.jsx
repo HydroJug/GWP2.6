@@ -47,7 +47,14 @@ export const action = async ({ request }) => {
   }
 
   const shop = normalizeShopDomain(body?.shop);
-  if (!shop || !verifyGorgiasSecret(request.headers.get("authorization"), shop)) {
+  const authorization = request.headers.get("authorization");
+  if (!shop || !verifyGorgiasSecret(authorization, shop)) {
+    const reason = !shop
+      ? `"shop" is missing or not a *.myshopify.com domain (got ${JSON.stringify(body?.shop ?? null)})`
+      : !authorization
+        ? "no Authorization header"
+        : `secret doesn't match the one shown on the Gorgias page for ${shop}`;
+    console.warn(`[gorgias/customer-tags] 401: ${reason}`);
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
