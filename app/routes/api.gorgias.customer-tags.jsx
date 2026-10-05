@@ -63,19 +63,6 @@ export const action = async ({ request }) => {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const numericId = String(body?.customerId ?? "")
-    .trim()
-    .replace(/^gid:\/\/shopify\/Customer\//, "");
-  if (!/^\d+$/.test(numericId)) {
-    console.warn(
-      `[gorgias/customer-tags] 400: ${shop}: customerId is ${JSON.stringify(body?.customerId ?? null)}; the ticket's customer is probably not linked to Shopify`
-    );
-    return json(
-      { error: "customerId is missing or invalid. Is this ticket's customer linked to Shopify?" },
-      { status: 400 }
-    );
-  }
-
   const allowed = allowedGorgiasTags();
   const tags = Array.isArray(body?.tags) ? body.tags.map((t) => String(t).trim()) : [];
   const rejected = tags.filter((t) => !allowed.includes(t));
@@ -87,6 +74,23 @@ export const action = async ({ request }) => {
       { error: "tags must be a non-empty list of allowed tags", rejected, allowed },
       { status: 400 }
     );
+  }
+
+  // Problems specific to one ticket answer 200 so Gorgias still sends the
+  // agent's message; the failure is only in the logs and the response body.
+  // Macro setup mistakes above stay errors so they get noticed and fixed.
+  const numericId = String(body?.customerId ?? "")
+    .trim()
+    .replace(/^gid:\/\/shopify\/Customer\//, "");
+  if (!/^\d+$/.test(numericId)) {
+    console.warn(
+      `[gorgias/customer-tags] not tagged: ${shop}: customerId is ${JSON.stringify(body?.customerId ?? null)}; the ticket's customer is probably not linked to Shopify`
+    );
+    return json({
+      ok: false,
+      tagged: false,
+      error: "customerId is missing or invalid. Is this ticket's customer linked to Shopify?",
+    });
   }
 
   const customerGid = `gid://shopify/Customer/${numericId}`;
@@ -114,7 +118,7 @@ export const action = async ({ request }) => {
     return json({ ok: true, pending: true, shop, customerId: customerGid, tags }, { status: 202 });
   }
   if (!result.ok) {
-    return json({ error: result.error }, { status: result.status });
+    return json({ ok: false, tagged: false, error: result.error, shopifyStatus: result.status });
   }
-  return json({ ok: true, shop, customerId: customerGid, tags });
+  return json({ ok: true, tagged: true, shop, customerId: customerGid, tags });
 };
