@@ -39,10 +39,12 @@ export const action = async ({ request }) => {
     return json({ error: "Endpoint not configured" }, { status: 500 });
   }
 
+  const raw = await request.text();
   let body;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
+    console.warn(`[gorgias/customer-tags] 400: body isn't valid JSON: ${JSON.stringify(raw.slice(0, 200))}`);
     return json({ error: "Body must be JSON" }, { status: 400 });
   }
 
@@ -62,6 +64,9 @@ export const action = async ({ request }) => {
     .trim()
     .replace(/^gid:\/\/shopify\/Customer\//, "");
   if (!/^\d+$/.test(numericId)) {
+    console.warn(
+      `[gorgias/customer-tags] 400: ${shop}: customerId is ${JSON.stringify(body?.customerId ?? null)}; the ticket's customer is probably not linked to Shopify`
+    );
     return json(
       { error: "customerId is missing or invalid. Is this ticket's customer linked to Shopify?" },
       { status: 400 }
@@ -72,6 +77,9 @@ export const action = async ({ request }) => {
   const tags = Array.isArray(body?.tags) ? body.tags.map((t) => String(t).trim()) : [];
   const rejected = tags.filter((t) => !allowed.includes(t));
   if (tags.length === 0 || rejected.length > 0) {
+    console.warn(
+      `[gorgias/customer-tags] 400: ${shop}: ${tags.length ? `tags not allowed: ${rejected.join(", ")}` : "no tags sent"} (allowed: ${allowed.join(", ")})`
+    );
     return json(
       { error: "tags must be a non-empty list of allowed tags", rejected, allowed },
       { status: 400 }
