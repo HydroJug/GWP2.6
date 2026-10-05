@@ -1,4 +1,5 @@
 import { json } from "@remix-run/node";
+import { waitUntil } from "@vercel/functions";
 import {
   addCustomerTags,
   allowedGorgiasTags,
@@ -22,6 +23,8 @@ import {
  *   GORGIAS_HOOK_SECRET   master secret; each store's hook secret is derived from it
  *   GORGIAS_ALLOWED_TAGS  comma-separated allowlist (default: FREELID)
  */
+
+const SHOPIFY_RESPONSE_BUDGET_MS = 3000;
 
 export const loader = () => json({ error: "Method not allowed" }, { status: 405 });
 
@@ -87,11 +90,31 @@ export const action = async ({ request }) => {
   }
 
   const customerGid = `gid://shopify/Customer/${numericId}`;
-  const result = await addCustomerTags(shop, customerGid, tags);
+  const startedAt = Date.now();
+  const tagging = addCustomerTags(shop, customerGid, tags).then((result) => {
+    const ms = Date.now() - startedAt;
+    if (result.ok) {
+      console.log(`[gorgias/customer-tags] ${shop}: added ${tags.join(", ")} to ${customerGid} (${ms}ms)`);
+    } else {
+      console.error(`[gorgias/customer-tags] ${shop}: failed to tag ${customerGid} (${ms}ms): ${result.error}`);
+    }
+    return result;
+  });
+
+  // Gorgias fails the macro if the hook takes more than 5s, and a cold start
+  // plus a fresh Shopify token can exceed that. If Shopify is slow, answer
+  // 202 and let the tagging finish after the response.
+  const result = await Promise.race([
+    tagging,
+    new Promise((resolve) => setTimeout(() => resolve(null), SHOPIFY_RESPONSE_BUDGET_MS)),
+  ]);
+  if (!result) {
+    waitUntil(tagging);
+    console.warn(`[gorgias/customer-tags] ${shop}: Shopify is slow; finishing ${customerGid} in the background`);
+    return json({ ok: true, pending: true, shop, customerId: customerGid, tags }, { status: 202 });
+  }
   if (!result.ok) {
     return json({ error: result.error }, { status: result.status });
   }
-
-  console.log(`[gorgias/customer-tags] ${shop}: added ${tags.join(", ")} to ${customerGid}`);
   return json({ ok: true, shop, customerId: customerGid, tags });
 };
