@@ -1,4 +1,5 @@
 import { json } from "@remix-run/node";
+import { waitUntil } from "@vercel/functions";
 import {
   addCustomerTags,
   allowedGorgiasTags,
@@ -23,6 +24,8 @@ import {
  *   GORGIAS_ALLOWED_TAGS  comma-separated allowlist (default: FREELID)
  */
 
+const SHOPIFY_RESPONSE_BUDGET_MS = 3000;
+
 export const loader = () => json({ error: "Method not allowed" }, { status: 405 });
 
 export const action = async ({ request }) => {
@@ -39,15 +42,24 @@ export const action = async ({ request }) => {
     return json({ error: "Endpoint not configured" }, { status: 500 });
   }
 
+  const raw = await request.text();
   let body;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
+    console.warn(`[gorgias/customer-tags] 400: body isn't valid JSON: ${JSON.stringify(raw.slice(0, 200))}`);
     return json({ error: "Body must be JSON" }, { status: 400 });
   }
 
   const shop = normalizeShopDomain(body?.shop);
-  if (!shop || !verifyGorgiasSecret(request.headers.get("authorization"), shop)) {
+  const authorization = request.headers.get("authorization");
+  if (!shop || !verifyGorgiasSecret(authorization, shop)) {
+    const reason = !shop
+      ? `"shop" is missing or not a *.myshopify.com domain (got ${JSON.stringify(body?.shop ?? null)})`
+      : !authorization
+        ? "no Authorization header"
+        : `secret doesn't match the one shown on the Gorgias page for ${shop}`;
+    console.warn(`[gorgias/customer-tags] 401: ${reason}`);
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -55,6 +67,9 @@ export const action = async ({ request }) => {
     .trim()
     .replace(/^gid:\/\/shopify\/Customer\//, "");
   if (!/^\d+$/.test(numericId)) {
+    console.warn(
+      `[gorgias/customer-tags] 400: ${shop}: customerId is ${JSON.stringify(body?.customerId ?? null)}; the ticket's customer is probably not linked to Shopify`
+    );
     return json(
       { error: "customerId is missing or invalid. Is this ticket's customer linked to Shopify?" },
       { status: 400 }
@@ -65,6 +80,9 @@ export const action = async ({ request }) => {
   const tags = Array.isArray(body?.tags) ? body.tags.map((t) => String(t).trim()) : [];
   const rejected = tags.filter((t) => !allowed.includes(t));
   if (tags.length === 0 || rejected.length > 0) {
+    console.warn(
+      `[gorgias/customer-tags] 400: ${shop}: ${tags.length ? `tags not allowed: ${rejected.join(", ")}` : "no tags sent"} (allowed: ${allowed.join(", ")})`
+    );
     return json(
       { error: "tags must be a non-empty list of allowed tags", rejected, allowed },
       { status: 400 }
@@ -72,11 +90,31 @@ export const action = async ({ request }) => {
   }
 
   const customerGid = `gid://shopify/Customer/${numericId}`;
-  const result = await addCustomerTags(shop, customerGid, tags);
+  const startedAt = Date.now();
+  const tagging = addCustomerTags(shop, customerGid, tags).then((result) => {
+    const ms = Date.now() - startedAt;
+    if (result.ok) {
+      console.log(`[gorgias/customer-tags] ${shop}: added ${tags.join(", ")} to ${customerGid} (${ms}ms)`);
+    } else {
+      console.error(`[gorgias/customer-tags] ${shop}: failed to tag ${customerGid} (${ms}ms): ${result.error}`);
+    }
+    return result;
+  });
+
+  // Gorgias fails the macro if the hook takes more than 5s, and a cold start
+  // plus a fresh Shopify token can exceed that. If Shopify is slow, answer
+  // 202 and let the tagging finish after the response.
+  const result = await Promise.race([
+    tagging,
+    new Promise((resolve) => setTimeout(() => resolve(null), SHOPIFY_RESPONSE_BUDGET_MS)),
+  ]);
+  if (!result) {
+    waitUntil(tagging);
+    console.warn(`[gorgias/customer-tags] ${shop}: Shopify is slow; finishing ${customerGid} in the background`);
+    return json({ ok: true, pending: true, shop, customerId: customerGid, tags }, { status: 202 });
+  }
   if (!result.ok) {
     return json({ error: result.error }, { status: result.status });
   }
-
-  console.log(`[gorgias/customer-tags] ${shop}: added ${tags.join(", ")} to ${customerGid}`);
   return json({ ok: true, shop, customerId: customerGid, tags });
 };
