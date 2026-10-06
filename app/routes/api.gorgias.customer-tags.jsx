@@ -3,6 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import {
   addCustomerTags,
   allowedGorgiasTags,
+  findCustomerByEmail,
   normalizeShopDomain,
   verifyGorgiasSecret,
 } from "../lib/gorgias.server";
@@ -16,6 +17,8 @@ import {
  *   {
  *     "shop": "store.myshopify.com",
  *     "customerId": "{{ticket.customer.integrations.shopify.customer.id}}",
+ *     "email": "{{ticket.customer.email}}",
+ *     "ticketId": "{{ticket.id}}",
  *     "tags": ["FREELID"]
  *   }
  *
@@ -25,6 +28,7 @@ import {
  */
 
 const SHOPIFY_RESPONSE_BUDGET_MS = 3000;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const loader = () => json({ error: "Method not allowed" }, { status: 405 });
 
@@ -51,6 +55,9 @@ export const action = async ({ request }) => {
     return json({ error: "Body must be JSON" }, { status: 400 });
   }
 
+  const ticketId = String(body?.ticketId ?? "").trim();
+  const ticket = /^\d+$/.test(ticketId) ? ` ticket ${ticketId}` : "";
+
   const shop = normalizeShopDomain(body?.shop);
   const authorization = request.headers.get("authorization");
   if (!shop || !verifyGorgiasSecret(authorization, shop)) {
@@ -59,21 +66,8 @@ export const action = async ({ request }) => {
       : !authorization
         ? "no Authorization header"
         : `secret doesn't match the one shown on the Gorgias page for ${shop}`;
-    console.warn(`[gorgias/customer-tags] 401: ${reason}`);
+    console.warn(`[gorgias/customer-tags] 401${ticket}: ${reason}`);
     return json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const numericId = String(body?.customerId ?? "")
-    .trim()
-    .replace(/^gid:\/\/shopify\/Customer\//, "");
-  if (!/^\d+$/.test(numericId)) {
-    console.warn(
-      `[gorgias/customer-tags] 400: ${shop}: customerId is ${JSON.stringify(body?.customerId ?? null)}; the ticket's customer is probably not linked to Shopify`
-    );
-    return json(
-      { error: "customerId is missing or invalid. Is this ticket's customer linked to Shopify?" },
-      { status: 400 }
-    );
   }
 
   const allowed = allowedGorgiasTags();
@@ -81,7 +75,7 @@ export const action = async ({ request }) => {
   const rejected = tags.filter((t) => !allowed.includes(t));
   if (tags.length === 0 || rejected.length > 0) {
     console.warn(
-      `[gorgias/customer-tags] 400: ${shop}: ${tags.length ? `tags not allowed: ${rejected.join(", ")}` : "no tags sent"} (allowed: ${allowed.join(", ")})`
+      `[gorgias/customer-tags] 400: ${shop}${ticket}: ${tags.length ? `tags not allowed: ${rejected.join(", ")}` : "no tags sent"} (allowed: ${allowed.join(", ")})`
     );
     return json(
       { error: "tags must be a non-empty list of allowed tags", rejected, allowed },
@@ -89,14 +83,41 @@ export const action = async ({ request }) => {
     );
   }
 
-  const customerGid = `gid://shopify/Customer/${numericId}`;
+  // Gorgias leaves customerId empty when the ticket's customer isn't linked to
+  // a Shopify profile, so fall back to finding the customer by email.
+  const numericId = String(body?.customerId ?? "")
+    .trim()
+    .replace(/^gid:\/\/shopify\/Customer\//, "");
+  const email = String(body?.email ?? "").trim();
+  const hasId = /^\d+$/.test(numericId);
+  if (!hasId && !EMAIL_PATTERN.test(email)) {
+    console.warn(
+      `[gorgias/customer-tags] 400: ${shop}${ticket}: customerId is ${JSON.stringify(body?.customerId ?? null)} and email is ${JSON.stringify(body?.email ?? null)}; nothing to find the Shopify customer by`
+    );
+    return json(
+      { error: "Send a Shopify customerId or the customer's email" },
+      { status: 400 }
+    );
+  }
+
+  const customer = hasId ? `gid://shopify/Customer/${numericId}` : email;
   const startedAt = Date.now();
-  const tagging = addCustomerTags(shop, customerGid, tags).then((result) => {
+  const tagging = (async () => {
+    let customerGid = hasId ? customer : null;
+    if (!customerGid) {
+      const found = await findCustomerByEmail(shop, email);
+      if (!found.ok) return found;
+      customerGid = found.customerGid;
+    }
+    const tagged = await addCustomerTags(shop, customerGid, tags);
+    return tagged.ok ? { ok: true, customerGid } : tagged;
+  })().then((result) => {
     const ms = Date.now() - startedAt;
     if (result.ok) {
-      console.log(`[gorgias/customer-tags] ${shop}: added ${tags.join(", ")} to ${customerGid} (${ms}ms)`);
+      const via = hasId ? "" : ` (found by email ${email})`;
+      console.log(`[gorgias/customer-tags] ${shop}${ticket}: added ${tags.join(", ")} to ${result.customerGid}${via} (${ms}ms)`);
     } else {
-      console.error(`[gorgias/customer-tags] ${shop}: failed to tag ${customerGid} (${ms}ms): ${result.error}`);
+      console.error(`[gorgias/customer-tags] ${shop}${ticket}: failed to tag ${customer} (${ms}ms): ${result.error}`);
     }
     return result;
   });
@@ -110,11 +131,11 @@ export const action = async ({ request }) => {
   ]);
   if (!result) {
     waitUntil(tagging);
-    console.warn(`[gorgias/customer-tags] ${shop}: Shopify is slow; finishing ${customerGid} in the background`);
-    return json({ ok: true, pending: true, shop, customerId: customerGid, tags }, { status: 202 });
+    console.warn(`[gorgias/customer-tags] ${shop}${ticket}: Shopify is slow; finishing ${customer} in the background`);
+    return json({ ok: true, pending: true, shop, customer, tags }, { status: 202 });
   }
   if (!result.ok) {
     return json({ error: result.error }, { status: result.status });
   }
-  return json({ ok: true, shop, customerId: customerGid, tags });
+  return json({ ok: true, shop, customerId: result.customerGid, tags });
 };
