@@ -49,6 +49,7 @@ export default function GorgiasSetup() {
     {
       shop,
       customerId: "{{ticket.customer.integrations.shopify.customer.id}}",
+      email: "{{ticket.customer.email}}",
       tags: [tag],
     },
     null,

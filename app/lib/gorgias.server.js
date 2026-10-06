@@ -80,8 +80,14 @@ const TAGS_ADD = `mutation AddCustomerTags($id: ID!, $tags: [String!]!) {
   }
 }`;
 
-/** Returns `{ ok: true }` or `{ ok: false, status, error }`. */
-export async function addCustomerTags(shop, customerGid, tags) {
+const CUSTOMERS_BY_EMAIL = `query CustomersByEmail($query: String!) {
+  customers(first: 5, query: $query) {
+    nodes { id email }
+  }
+}`;
+
+/** Returns `{ ok: true, data }` or `{ ok: false, status, error }`. */
+async function shopifyGraphql(shop, query, variables) {
   let token;
   try {
     token = await getShopifyAdminToken(shop);
@@ -90,7 +96,6 @@ export async function addCustomerTags(shop, customerGid, tags) {
     return { ok: false, status: 502, error: "Could not authenticate with Shopify" };
   }
 
-  let data;
   try {
     const res = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
       method: "POST",
@@ -98,18 +103,54 @@ export async function addCustomerTags(shop, customerGid, tags) {
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": token.value,
       },
-      body: JSON.stringify({ query: TAGS_ADD, variables: { id: customerGid, tags } }),
+      body: JSON.stringify({ query, variables }),
     });
-    data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
     if (res.status === 401) tokenCache.delete(shop);
     if (!res.ok) {
       console.error(`[gorgias] ${shop}: Shopify HTTP ${res.status}`, JSON.stringify(data));
       return { ok: false, status: 502, error: `Shopify responded ${res.status}` };
     }
+    return { ok: true, data };
   } catch (err) {
     console.error(`[gorgias] ${shop}: request failed:`, err.message);
     return { ok: false, status: 502, error: "Could not reach Shopify" };
   }
+}
+
+/** Returns `{ ok: true, customerGid }` or `{ ok: false, status, error }`. */
+export async function findCustomerByEmail(shop, email) {
+  const response = await shopifyGraphql(shop, CUSTOMERS_BY_EMAIL, {
+    query: `email:${JSON.stringify(email)}`,
+  });
+  if (!response.ok) return response;
+
+  const errors = (response.data.errors ?? []).map((e) => e.message);
+  if (errors.length > 0) {
+    console.error(`[gorgias] ${shop}: customer lookup failed:`, errors);
+    return { ok: false, status: 502, error: errors[0] };
+  }
+  // The search can match loosely, so only accept an exact email match.
+  const matches = (response.data.data?.customers?.nodes ?? []).filter(
+    (c) => c.email?.toLowerCase() === email.toLowerCase()
+  );
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      status: 422,
+      error: matches.length
+        ? `${matches.length} Shopify customers have the email ${email}`
+        : `No Shopify customer has the email ${email}`,
+    };
+  }
+  return { ok: true, customerGid: matches[0].id };
+}
+
+/** Returns `{ ok: true }` or `{ ok: false, status, error }`. */
+export async function addCustomerTags(shop, customerGid, tags) {
+  const response = await shopifyGraphql(shop, TAGS_ADD, { id: customerGid, tags });
+  if (!response.ok) return response;
+  const { data } = response;
 
   const errors = [
     ...(data.errors ?? []).map((e) => e.message),
