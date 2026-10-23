@@ -15,7 +15,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
-  DISCOUNT_LIST_QUERY,
+  fetchAppDiscountNodes,
   filterDiscountsByFunction,
   statusBadgeTone,
   formatDate,
@@ -26,9 +26,9 @@ import DiscountStatusToggle from "../components/DiscountStatusToggle";
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
 
-  const [fnRes, listRes] = await Promise.all([
+  const [fnRes, appDiscountNodes] = await Promise.all([
     admin.graphql(`query { shopifyFunctions(first: 25) { nodes { id title apiType } } }`),
-    admin.graphql(DISCOUNT_LIST_QUERY),
+    fetchAppDiscountNodes(admin),
   ]);
 
   const fnData = await fnRes.json();
@@ -36,8 +36,7 @@ export const loader = async ({ request }) => {
   const functionId = gwpFns.length ? gwpFns[gwpFns.length - 1].id : null;
   const allFunctionIds = gwpFns.map((f) => f.id);
 
-  const listData = await listRes.json();
-  const discounts = filterDiscountsByFunction(listData.data, allFunctionIds);
+  const discounts = filterDiscountsByFunction(appDiscountNodes, allFunctionIds);
 
   // Keep the storefront's GWP active-state in sync with live discount status.
   // The discounts/* webhooks handle most changes; this is a backstop for cases

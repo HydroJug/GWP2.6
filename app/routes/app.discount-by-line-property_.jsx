@@ -15,7 +15,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
-  DISCOUNT_LIST_QUERY,
+  fetchAppDiscountNodes,
   filterDiscountsByFunction,
   statusBadgeTone,
   formatDate,
@@ -32,11 +32,11 @@ const FUNCTION_TITLE = "Discount by Line Item Property";
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  const [fnRes, listRes] = await Promise.all([
+  const [fnRes, appDiscountNodes] = await Promise.all([
     admin.graphql(
       `query { shopifyFunctions(first: 25) { nodes { id title apiType } } }`
     ),
-    admin.graphql(DISCOUNT_LIST_QUERY),
+    fetchAppDiscountNodes(admin),
   ]);
 
   const fnData = await fnRes.json();
@@ -46,8 +46,7 @@ export const loader = async ({ request }) => {
   const functionId = allFns.length ? allFns[allFns.length - 1].id : null;
   const allFunctionIds = allFns.map((f) => f.id);
 
-  const listData = await listRes.json();
-  const discounts = filterDiscountsByFunction(listData.data, allFunctionIds);
+  const discounts = filterDiscountsByFunction(appDiscountNodes, allFunctionIds);
 
   return json({ functionId, discounts });
 };

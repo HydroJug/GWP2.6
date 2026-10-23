@@ -14,3 +14,7 @@ type = "function"
   [extensions.build]
   command = "node build.mjs"
   path = "dist/function.wasm"
+
+  [extensions.ui.paths]
+  create = "/app/free-etch/new"
+  details = "/app/free-etch/:id"

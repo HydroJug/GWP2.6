@@ -14,27 +14,21 @@ import {
   Banner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { statusBadgeTone, formatDate } from "../utils/discountList";
+import { fetchAppDiscountNodes, statusBadgeTone, formatDate } from "../utils/discountList";
 import { useDiscountAnalytics, AnalyticsCells, analyticsHeadings } from "../components/DiscountAnalytics";
 import DiscountStatusToggle from "../components/DiscountStatusToggle";
 
-const BULK_LIST_QUERY = `
-  query BulkDiscountList {
-    discountNodes(first: 250, sortKey: CREATED_AT, reverse: true) {
-      nodes {
-        id
-        metafield(namespace: "bulk_discount", key: "config") { value }
-        discount {
-          ... on DiscountCodeApp {
-            title
-            status
-            startsAt
-            endsAt
-            codesCount { count }
-            appDiscountType { functionId }
-          }
-        }
-      }
+const BULK_LIST_NODE = `
+  id
+  metafield(namespace: "bulk_discount", key: "config") { value }
+  discount {
+    ... on DiscountCodeApp {
+      title
+      status
+      startsAt
+      endsAt
+      codesCount { count }
+      appDiscountType { functionId }
     }
   }
 `;
@@ -42,9 +36,9 @@ const BULK_LIST_QUERY = `
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
-  const [fnRes, listRes] = await Promise.all([
+  const [fnRes, nodes] = await Promise.all([
     admin.graphql(`query { shopifyFunctions(first: 25) { nodes { id title apiType } } }`),
-    admin.graphql(BULK_LIST_QUERY),
+    fetchAppDiscountNodes(admin, BULK_LIST_NODE),
   ]);
 
   const fnData = await fnRes.json();
@@ -53,7 +47,6 @@ export const loader = async ({ request }) => {
   const functionId = allFns.length ? allFns[allFns.length - 1].id : null;
   const idSet = new Set(allFns.map((f) => f.id));
 
-  const nodes = (await listRes.json()).data?.discountNodes?.nodes ?? [];
   const discounts = nodes
     .filter((n) => n.discount?.appDiscountType?.functionId && idSet.has(n.discount.appDiscountType.functionId))
     .map((n) => {

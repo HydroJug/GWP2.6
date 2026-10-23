@@ -2,45 +2,69 @@
  * Shared utilities for querying and displaying app discounts.
  */
 
-export const DISCOUNT_LIST_QUERY = `
-  query DiscountList {
-    discountNodes(first: 250, sortKey: CREATED_AT, reverse: true) {
-      nodes {
-        id
-        discount {
-          ... on DiscountAutomaticApp {
-            title
-            status
-            startsAt
-            endsAt
-            appDiscountType { functionId }
-          }
-          ... on DiscountCodeApp {
-            title
-            status
-            startsAt
-            endsAt
-            codes(first: 1) { edges { node { code } } }
-            appDiscountType { functionId }
-            usageLimit
-            appliesOncePerCustomer
-          }
-        }
-      }
+const DISCOUNT_LIST_NODE = `
+  id
+  discount {
+    ... on DiscountAutomaticApp {
+      title
+      status
+      startsAt
+      endsAt
+      appDiscountType { functionId }
+    }
+    ... on DiscountCodeApp {
+      title
+      status
+      startsAt
+      endsAt
+      codes(first: 1) { edges { node { code } } }
+      appDiscountType { functionId }
+      usageLimit
+      appliesOncePerCustomer
     }
   }
 `;
 
+// The store has thousands of non-app discounts (PostScript creates hundreds of
+// codes a day), so an unfiltered "newest 250" page misses this app's discounts.
+// Filter to app discounts and page through them, capped as a safety net.
+const MAX_PAGES = 20;
+
 /**
- * Filter raw GraphQL discount list results to only those belonging to given functionId(s).
+ * Every app (function-backed) discount node in the store, newest first.
+ * `nodeFields` is the selection for each node; defaults to what the list pages use.
+ */
+export async function fetchAppDiscountNodes(admin, nodeFields = DISCOUNT_LIST_NODE) {
+  const nodes = [];
+  let after = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await admin.graphql(
+      `query AppDiscountList($after: String) {
+        discountNodes(first: 250, after: $after, query: "type:app", sortKey: CREATED_AT, reverse: true) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${nodeFields} }
+        }
+      }`,
+      { variables: { after } }
+    );
+    const data = await res.json();
+    if (data.errors?.length) throw new Error(data.errors[0].message);
+    const conn = data.data?.discountNodes;
+    nodes.push(...(conn?.nodes ?? []));
+    if (!conn?.pageInfo?.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return nodes;
+}
+
+/**
+ * Filter discount nodes from fetchAppDiscountNodes to those belonging to given functionId(s).
  * Accepts a single ID string or an array of IDs to handle multiple function versions.
  */
-export function filterDiscountsByFunction(data, functionIds) {
-  if (!functionIds || !data) return [];
+export function filterDiscountsByFunction(nodes, functionIds) {
+  if (!functionIds || !nodes) return [];
   const idSet = new Set(Array.isArray(functionIds) ? functionIds : [functionIds]);
   if (idSet.size === 0) return [];
-
-  const nodes = data.discountNodes?.nodes ?? [];
 
   return nodes
     .filter((n) => {
