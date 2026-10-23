@@ -20,6 +20,13 @@ import {
 } from "@shopify/polaris";
 import DateTimePicker from "../components/DateTimePicker";
 import DiscountStatusToggle from "../components/DiscountStatusToggle";
+import {
+  STACKING_API_VERSION,
+  freeEtchStackingInput,
+  getStackableDiscount,
+  listStackableDiscounts,
+  setStacksWithFreeEtch,
+} from "../lib/discountStacking.server";
 
 function nowLocal() {
   const d = new Date();
@@ -41,8 +48,19 @@ export const loader = async ({ request, params }) => {
   );
   const functionId = allMatches[allMatches.length - 1]?.id ?? null;
 
+  let stackable = [];
+  let stackableTruncated = false;
+  let stackableError = null;
+  try {
+    const result = await listStackableDiscounts(admin, functionId);
+    stackable = result.discounts.map(({ id, title, status, stacks }) => ({ id, title, status, stacks }));
+    stackableTruncated = result.truncated;
+  } catch (err) {
+    stackableError = err.message;
+  }
+
   if (isNew) {
-    return json({ functionId, discount: null, isNew: true });
+    return json({ functionId, discount: null, isNew: true, stackable, stackableTruncated, stackableError });
   }
 
   const rawId = params.id;
@@ -118,6 +136,9 @@ export const loader = async ({ request, params }) => {
   return json({
     functionId,
     isNew: false,
+    stackable,
+    stackableTruncated,
+    stackableError,
     discount: {
       nodeId: resolvedGid,
       discountId: d.discountId,
@@ -151,6 +172,8 @@ export const action = async ({ request, params }) => {
   const usageLimit = formData.get("usageLimit");
   const appliesOncePerCustomer = formData.get("appliesOncePerCustomer") === "true";
   const discountId = formData.get("discountId");
+  // { [discountNodeId]: shouldStack } for only the discounts the user toggled.
+  const stackChanges = JSON.parse(formData.get("stackChanges") || "{}");
 
   if (!functionId) {
     return json({ error: "Free Etch Discount function is not deployed yet." });
@@ -171,8 +194,9 @@ export const action = async ({ request, params }) => {
     startsAt,
     ...(endsAt ? { endsAt } : {}),
     discountClasses: ["PRODUCT"],
-    combinesWith: { orderDiscounts: true, productDiscounts: true, shippingDiscounts: true },
+    ...freeEtchStackingInput(),
   };
+  const gqlOptions = (variables) => ({ variables, apiVersion: STACKING_API_VERSION });
 
   try {
     let createdDiscountId;
@@ -186,7 +210,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { id: discountId, input: discountInput } }
+          gqlOptions({ id: discountId, input: discountInput })
         );
         const data = await res.json();
         const errors = data.data?.discountAutomaticAppUpdate?.userErrors ?? [];
@@ -200,16 +224,14 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          {
-            variables: {
-              id: discountId,
-              input: {
-                ...discountInput,
-                usageLimit: usageLimit ? parseInt(usageLimit, 10) : null,
-                appliesOncePerCustomer,
-              },
+          gqlOptions({
+            id: discountId,
+            input: {
+              ...discountInput,
+              usageLimit: usageLimit ? parseInt(usageLimit, 10) : null,
+              appliesOncePerCustomer,
             },
-          }
+          })
         );
         const data = await res.json();
         const errors = data.data?.discountCodeAppUpdate?.userErrors ?? [];
@@ -225,7 +247,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { input: discountInput } }
+          gqlOptions({ input: discountInput })
         );
         const data = await res.json();
         const errors = data.data?.discountAutomaticAppCreate?.userErrors ?? [];
@@ -239,7 +261,7 @@ export const action = async ({ request, params }) => {
               userErrors { field message }
             }
           }`,
-          { variables: { input: { ...discountInput, code } } }
+          gqlOptions({ input: { ...discountInput, code } })
         );
         const data = await res.json();
         const errors = data.data?.discountCodeAppCreate?.userErrors ?? [];
@@ -275,6 +297,21 @@ export const action = async ({ request, params }) => {
       return json({ error: "Discount saved but config failed: " + mfErrors[0].message });
     }
 
+    const stackErrors = [];
+    for (const [id, wanted] of Object.entries(stackChanges)) {
+      try {
+        const other = await getStackableDiscount(admin, id, functionId);
+        if (!other || other.stacks === Boolean(wanted)) continue;
+        const error = await setStacksWithFreeEtch(admin, other, Boolean(wanted));
+        if (error) stackErrors.push(error);
+      } catch (err) {
+        stackErrors.push(`${id}: ${err.message}`);
+      }
+    }
+    if (stackErrors.length) {
+      return json({ error: `Discount saved, but stacking couldn't be updated for ${stackErrors.join("; ")}` });
+    }
+
     return json({ success: true });
   } catch (err) {
     return json({ error: err.message });
@@ -284,8 +321,17 @@ export const action = async ({ request, params }) => {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function FreeEtchForm() {
-  const { functionId, discount, isNew, notFound } = useLoaderData();
+  const {
+    functionId,
+    discount,
+    isNew,
+    notFound,
+    stackable = [],
+    stackableTruncated,
+    stackableError,
+  } = useLoaderData();
   const fetcher = useFetcher();
+  const searchFetcher = useFetcher();
   const shopify = useAppBridge();
 
   const [title, setTitle] = useState(discount?.title ?? "");
@@ -300,6 +346,30 @@ export default function FreeEtchForm() {
   const [appliesOncePerCustomer, setAppliesOncePerCustomer] = useState(
     discount?.appliesOncePerCustomer ?? false
   );
+  // Discounts shown in the stacking list: the loader's, plus code discounts found
+  // by search. Each keeps the stacking state it had when first shown, so saving
+  // only touches the ones the user toggled.
+  const [knownStackable, setKnownStackable] = useState(stackable);
+  const [stackWithIds, setStackWithIds] = useState(
+    stackable.filter((d) => d.stacks).map((d) => d.id)
+  );
+  const [stackSearch, setStackSearch] = useState("");
+
+  useEffect(() => {
+    const found = searchFetcher.data?.discounts;
+    if (!found?.length) return;
+    const knownIds = new Set(knownStackable.map((d) => d.id));
+    const added = found.filter((d) => !knownIds.has(d.id));
+    if (!added.length) return;
+    setKnownStackable([...knownStackable, ...added]);
+    setStackWithIds((ids) => [...new Set([...ids, ...added.filter((d) => d.stacks).map((d) => d.id)])]);
+  }, [searchFetcher.data, knownStackable]);
+
+  const runStackSearch = () => {
+    if (!stackSearch.trim()) return;
+    const params = new URLSearchParams({ q: stackSearch, functionId: functionId ?? "" });
+    searchFetcher.load(`/api/stackable-discounts?${params}`);
+  };
 
   const isLoading = ["loading", "submitting"].includes(fetcher.state);
 
@@ -312,6 +382,11 @@ export default function FreeEtchForm() {
   }, [fetcher.data, shopify]);
 
   const handleSave = () => {
+    const stackChanges = {};
+    for (const d of knownStackable) {
+      const wanted = stackWithIds.includes(d.id);
+      if (wanted !== d.stacks) stackChanges[d.id] = wanted;
+    }
     fetcher.submit(
       {
         functionId,
@@ -324,6 +399,7 @@ export default function FreeEtchForm() {
         usageLimit,
         appliesOncePerCustomer: String(appliesOncePerCustomer),
         discountId: discount?.discountId ?? "",
+        stackChanges: JSON.stringify(stackChanges),
       },
       { method: "POST" }
     );
@@ -435,6 +511,76 @@ export default function FreeEtchForm() {
                       <strong>${parseFloat(orderMinimum).toFixed(2)}</strong>.
                     </p>
                   </Banner>
+                )}
+              </BlockStack>
+            </Card>
+
+            {/* ── Same-item stacking ── */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">Stack with other product discounts</Text>
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  Shopify applies only one product discount per item. Checked discounts
+                  also apply to etched items, together with the free etch. Requires
+                  Shopify Plus.
+                </Text>
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  This list is shared by every free etch discount, not just this one.
+                  Checking a discount also turns on its &ldquo;combines with product
+                  discounts&rdquo; setting; unchecking it turns that back off if this
+                  list turned it on.
+                </Text>
+                {stackableError ? (
+                  <Banner tone="warning">
+                    <p>Couldn&apos;t load product discounts: {stackableError}</p>
+                  </Banner>
+                ) : (
+                  <BlockStack gap="300">
+                    {stackableTruncated && (
+                      <Banner tone="info">
+                        <p>Only the first discounts are shown. Search to find others.</p>
+                      </Banner>
+                    )}
+                    {knownStackable.length === 0 ? (
+                      <Text as="p" variant="bodyMd" tone="subdued">
+                        No automatic product discounts. Search to add code discounts.
+                      </Text>
+                    ) : (
+                      <ChoiceList
+                        title="Product discounts"
+                        titleHidden
+                        allowMultiple
+                        choices={knownStackable.map((d) => ({
+                          label: d.status === "ACTIVE" ? d.title : `${d.title} (${d.status.toLowerCase()})`,
+                          value: d.id,
+                        }))}
+                        selected={stackWithIds}
+                        onChange={setStackWithIds}
+                      />
+                    )}
+                    <TextField
+                      label="Find code discounts"
+                      value={stackSearch}
+                      onChange={setStackSearch}
+                      placeholder="Discount name"
+                      autoComplete="off"
+                      connectedRight={
+                        <Button onClick={runStackSearch} loading={searchFetcher.state === "loading"}>
+                          Search
+                        </Button>
+                      }
+                    />
+                    {searchFetcher.data?.error && (
+                      <Banner tone="warning">
+                        <p>Search failed: {searchFetcher.data.error}</p>
+                      </Banner>
+                    )}
+                    {searchFetcher.state === "idle" && searchFetcher.data?.discounts?.length === 0 && (
+                      <Text as="p" variant="bodyMd" tone="subdued">
+                        No matching code product discounts.
+                      </Text>
+                    )}
+                  </BlockStack>
                 )}
               </BlockStack>
             </Card>
