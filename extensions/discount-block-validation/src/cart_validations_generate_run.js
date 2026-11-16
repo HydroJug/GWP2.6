@@ -14,10 +14,11 @@
 
 export const DEFAULT_MESSAGE = "Discount codes can't be used with our current sale prices.";
 
-// Only checkout steps. At CART_INTERACTION an error would reject cart updates
-// (adding items) while a code sits in the cart, which the checkout extension
-// clears anyway.
-const CHECKOUT_STEPS = new Set(["CHECKOUT_INTERACTION", "CHECKOUT_COMPLETION"]);
+// Only when the customer tries to pay. At CART_INTERACTION an error would
+// reject cart updates (adding items) while a code sits in the cart. At
+// CHECKOUT_INTERACTION it flashes a red error every time a code is entered,
+// in the moment before the checkout extension removes it.
+const CHECKOUT_STEPS = new Set(["CHECKOUT_COMPLETION"]);
 
 /**
  * @param {CartValidationsGenerateRunInput} input

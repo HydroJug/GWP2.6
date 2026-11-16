@@ -30,18 +30,7 @@
       }
     },
     "output": {
-      "operations": [
-        {
-          "validationAdd": {
-            "errors": [
-              {
-                "message": "No codes on Black Friday prices. Please remove the discount to continue.",
-                "target": "$.cart"
-              }
-            ]
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }
