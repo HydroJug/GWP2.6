@@ -1,0 +1,17 @@
+query CartValidationsGenerateRunInput {
+  buyerJourney {
+    step
+  }
+  cart {
+    discountApplications {
+      totalAllocatedAmount {
+        amount
+      }
+    }
+  }
+  shop {
+    block: metafield(namespace: "$app:discount_block", key: "config") {
+      jsonValue
+    }
+  }
+}

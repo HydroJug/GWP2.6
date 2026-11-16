@@ -1,0 +1,4 @@
+{
+  "name": "Block all discounts",
+  "description": "Blocks checkout while a discount is applied and the app's \"Block all discounts\" toggle is on."
+}

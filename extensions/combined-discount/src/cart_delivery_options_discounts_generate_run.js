@@ -8,6 +8,9 @@
  * @returns {CartDeliveryOptionsDiscountsGenerateRunResult}
  */
 export function cartDeliveryOptionsDiscountsGenerateRun(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   const firstDeliveryGroup = input.cart.deliveryGroups[0];
   if (!firstDeliveryGroup) return { operations: [] };
 

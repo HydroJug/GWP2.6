@@ -1,0 +1,42 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "cart": {
+        "discountApplications": [
+          {
+            "totalAllocatedAmount": {
+              "amount": "10.0"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "block": {
+          "jsonValue": {
+            "enabled": true,
+            "message": "  "
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "Discount codes can't be used with our current sale prices. Please remove the discount to continue.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

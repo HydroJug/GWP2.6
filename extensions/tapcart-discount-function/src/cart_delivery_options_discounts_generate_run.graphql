@@ -29,4 +29,10 @@ query DeliveryInput {
       value
     }
   }
+  # "Block all discounts" toggle (app/lib/discountBlock.server.js).
+  shop {
+    discountBlock: metafield(namespace: "$app:discount_block", key: "config") {
+      jsonValue
+    }
+  }
 }

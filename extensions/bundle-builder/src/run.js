@@ -17,6 +17,9 @@
 const SLOT_KEY = ['s0','s1','s2','s3','s4','s5','s6'];
 
 export function run(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   const metafieldValue = input.discount?.metafield?.value;
   if (!metafieldValue) {
     console.log("[BundleBuilder] config metafield: NULL");

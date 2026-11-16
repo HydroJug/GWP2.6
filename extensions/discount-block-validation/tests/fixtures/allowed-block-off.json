@@ -1,0 +1,31 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "cart": {
+        "discountApplications": [
+          {
+            "totalAllocatedAmount": {
+              "amount": "10.0"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "block": {
+          "jsonValue": {
+            "enabled": false,
+            "message": "x"
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": []
+    }
+  }
+}

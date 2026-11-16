@@ -28,6 +28,9 @@
  * the function falls back to the flat config for backward compatibility.
  */
 export function run(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   const configValue = input.discount?.metafield?.value;
   if (!configValue) {
     console.log("[LinePropertyDiscount] config: NULL");

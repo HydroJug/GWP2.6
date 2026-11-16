@@ -57,6 +57,9 @@ function isCustomerEligible(customer, buyerIdentity, config) {
   * @returns {CartDeliveryOptionsDiscountsGenerateRunResult}
   */
 export function cartDeliveryOptionsDiscountsGenerateRun(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   const { cart } = input;
 
   const config = {

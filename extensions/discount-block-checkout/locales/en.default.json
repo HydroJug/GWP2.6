@@ -1,0 +1,4 @@
+{
+  "defaultMessage": "Discount codes can't be used with our current sale prices.",
+  "removedCodes": "Removed: {{codes}}"
+}

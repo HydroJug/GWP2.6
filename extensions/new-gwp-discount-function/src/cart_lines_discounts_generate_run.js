@@ -12,6 +12,9 @@
   */
 
 export function cartLinesDiscountsGenerateRun(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   // MoneyV2.amount is a decimal string in dollars (e.g., "95.95" = $95.95)
   // Convert to cents for comparison with thresholdAmount (which is in cents)
   const subtotalInDollars = parseFloat(input.cart.cost.subtotalAmount.amount);

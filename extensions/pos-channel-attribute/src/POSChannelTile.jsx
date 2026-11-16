@@ -1,48 +1,29 @@
-import { useEffect, useRef } from "react";
-import {
-  reactExtension,
-  useApi,
-  useCartSubscription,
-  Tile,
-} from "@shopify/ui-extensions-react/point-of-sale";
+import '@shopify/ui-extensions/preact';
+import {render} from 'preact';
+import {useEffect, useRef} from 'preact/hooks';
 
-const CHANNEL_KEY = "channel";
-const CHANNEL_VALUE = "pos";
+// Marks every POS cart with the cart attribute channel=pos, which the
+// pos-only-discount and tapcart-discount-function functions read.
+const CHANNEL_KEY = 'channel';
+const CHANNEL_VALUE = 'pos';
+
+export default async () => {
+  render(<POSChannelTile />, document.body);
+};
 
 function POSChannelTile() {
-  const api = useApi();
-  const cart = useCartSubscription();
-
-  // Use a ref to avoid re-running the effect if the API reference changes
-  // but the cart properties already have the correct value.
-  const lastSetRef = useRef(false);
+  const current = shopify.cart.current.value?.properties?.[CHANNEL_KEY];
+  // Avoids re-sending while a write is in flight or already applied.
+  const lastSet = useRef(false);
 
   useEffect(() => {
-    const current = cart?.properties?.[CHANNEL_KEY];
-    if (current !== CHANNEL_VALUE) {
-      lastSetRef.current = false;
-    }
-    if (!lastSetRef.current) {
-      api.cart
-        .addCartProperties({ [CHANNEL_KEY]: CHANNEL_VALUE })
-        .then(() => {
-          lastSetRef.current = true;
-        })
-        .catch(() => {
-          lastSetRef.current = false;
-        });
-    }
-  }, [cart?.properties]);
+    if (current !== CHANNEL_VALUE) lastSet.current = false;
+    if (lastSet.current) return;
+    lastSet.current = true;
+    shopify.cart.addCartProperties({[CHANNEL_KEY]: CHANNEL_VALUE}).catch(() => {
+      lastSet.current = false;
+    });
+  }, [current]);
 
-  return (
-    <Tile
-      title="POS Mode"
-      subtitle="Active"
-      enabled={false}
-    />
-  );
+  return <s-tile heading="POS Mode" subheading="Active" disabled />;
 }
-
-export default reactExtension("pos.home.tile.render", () => (
-  <POSChannelTile />
-));
