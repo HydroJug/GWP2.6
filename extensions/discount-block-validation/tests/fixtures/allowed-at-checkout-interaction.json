@@ -11,14 +11,17 @@
           {
             "totalAllocatedAmount": {
               "amount": "0.0"
-            }
+            },
+            "blockExempt": null
           },
           {
             "totalAllocatedAmount": {
               "amount": "5.5"
-            }
+            },
+            "blockExempt": null
           }
-        ]
+        ],
+        "retailLocation": null
       },
       "shop": {
         "block": {

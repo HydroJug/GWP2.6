@@ -7,7 +7,8 @@
         "step": "CHECKOUT_COMPLETION"
       },
       "cart": {
-        "discountApplications": []
+        "discountApplications": [],
+        "retailLocation": null
       },
       "shop": {
         "block": {

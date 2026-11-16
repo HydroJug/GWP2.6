@@ -19,17 +19,23 @@ export const action = async ({ request }) => {
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
+  // Set when the discount block guard fails: answering with an error makes
+  // Shopify retry this webhook, and the retry does a full sweep.
+  let guardFailed = false;
+
   // admin is undefined if the shop has uninstalled — nothing to sync then.
   if (admin) {
     // While "Block all discounts" is on, any automatic discount created or
-    // resumed must be paused again, or the checkout validation would block
-    // every order it applies to. Runs first so the GWP sync below sees it.
+    // resumed must be paused again, or it would stack on sale prices. Runs
+    // first so the GWP sync below sees it. If it can't, the guard holds the
+    // checkout validation off so that discount doesn't block orders.
     if (topic !== "DISCOUNTS_DELETE") {
       try {
         const paused = await guardAutomaticDiscounts(admin, payload?.admin_graphql_api_id);
         if (paused) console.log(`[webhooks/discounts] Discount block re-paused ${paused} automatic discount(s)`);
       } catch (err) {
-        console.error("[webhooks/discounts] discount block guard failed:", err.message);
+        guardFailed = true;
+        console.error("[webhooks/discounts] discount block guard failed (Shopify will retry):", err.message);
       }
     }
     try {
@@ -50,5 +56,5 @@ export const action = async ({ request }) => {
     }
   }
 
-  return new Response();
+  return new Response(null, { status: guardFailed ? 500 : 200 });
 };

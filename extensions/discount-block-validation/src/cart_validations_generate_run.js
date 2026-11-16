@@ -10,7 +10,8 @@
 // Google Pay express checkout, so this blocks checkout if any discount still
 // applies. This can't tell codes from automatic discounts, so while the block
 // is on the app's own discount functions apply nothing and every other
-// automatic discount is paused.
+// automatic discount is paused. The exception is a discount of this app's
+// marked exempt, which it skips.
 
 export const DEFAULT_MESSAGE = "Discount codes can't be used with our current sale prices.";
 
@@ -30,9 +31,13 @@ export function cartValidationsGenerateRun(input) {
   if (!config?.enabled || !step || !CHECKOUT_STEPS.has(step)) {
     return { operations: [] };
   }
+  // The block is for online sale pricing. In store, POS-only discounts, codes
+  // entered on POS and staff custom discounts keep working.
+  if (input.cart.retailLocation) return { operations: [] };
 
   const discounted = input.cart.discountApplications.some(
-    (application) => Number(application.totalAllocatedAmount.amount) > 0
+    (application) =>
+      application.blockExempt?.value !== "true" && Number(application.totalAllocatedAmount.amount) > 0
   );
   if (!discounted) return { operations: [] };
 

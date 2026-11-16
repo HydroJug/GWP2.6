@@ -8,8 +8,11 @@
  * @returns {CartLinesDiscountsGenerateRunResult}
  */
 export function cartLinesDiscountsGenerateRun(input) {
-  // "Block all discounts" is on: the discount stays active but applies nothing.
-  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+  // "Block all discounts" is on: the discount stays active but applies nothing,
+  // unless the merchant marked this discount "Keep working during the block".
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true && input.discount?.blockExempt?.value !== "true") {
+    return { operations: [] };
+  }
 
   const metafieldValue = input.discount?.metafield?.value;
   if (!metafieldValue) return { operations: [] };

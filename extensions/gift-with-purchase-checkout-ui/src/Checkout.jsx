@@ -28,7 +28,7 @@ const toVariantGid = (id) =>
 const formatDollars = (cents) => `$${(cents / 100).toFixed(2)}`;
 
 function Extension() {
-  const {gwp, block} = readConfig(shopify.appMetafields.value);
+  const gwp = readGwpConfig(shopify.appMetafields.value);
   const cartLines = shopify.lines.value;
   const hasAnyDiscountCodes = shopify.discountCodes.value.length > 0;
 
@@ -37,7 +37,9 @@ function Extension() {
   const [selectedGifts, setSelectedGifts] = useState({});
   const [pageByTier, setPageByTier] = useState({});
 
-  const tiers = gwp?.isActive !== false && block?.enabled !== true ? (gwp?.tiers ?? []) : [];
+  // isActive is false while "Block all discounts" is on, unless the GWP
+  // discount was marked to keep working (syncGWPActiveState).
+  const tiers = gwp?.isActive !== false ? (gwp?.tiers ?? []) : [];
 
   const existingGifts = cartLines.filter(isGiftLine);
   const giftsForTier = (tierId) => existingGifts.filter((line) => lineTierId(line) === tierId);
@@ -362,14 +364,14 @@ function tierProducts(tier) {
     });
 }
 
-/** The shop metafields declared in shopify.extension.toml. */
-function readConfig(entries) {
-  const find = (namespaceSuffix) =>
+/** The gwp.config shop metafield declared in shopify.extension.toml. */
+function readGwpConfig(entries) {
+  return parseJson(
     entries.find(
       ({target, metafield}) =>
-        target.type === 'shop' && metafield.key === 'config' && metafield.namespace.endsWith(namespaceSuffix),
-    );
-  return {gwp: parseJson(find('gwp')), block: parseJson(find('discount_block'))};
+        target.type === 'shop' && metafield.namespace === 'gwp' && metafield.key === 'config',
+    ),
+  );
 }
 
 function parseJson(entry) {

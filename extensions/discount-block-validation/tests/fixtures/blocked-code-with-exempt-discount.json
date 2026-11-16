@@ -1,0 +1,52 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "cart": {
+        "discountApplications": [
+          {
+            "totalAllocatedAmount": {
+              "amount": "12.0"
+            },
+            "blockExempt": {
+              "value": "true"
+            }
+          },
+          {
+            "totalAllocatedAmount": {
+              "amount": "5.0"
+            },
+            "blockExempt": null
+          }
+        ],
+        "retailLocation": null
+      },
+      "shop": {
+        "block": {
+          "jsonValue": {
+            "enabled": true,
+            "message": "No codes on Black Friday prices."
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "No codes on Black Friday prices. Please remove the discount to continue.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

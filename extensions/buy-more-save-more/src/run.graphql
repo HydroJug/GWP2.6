@@ -19,6 +19,10 @@ query CartInput {
     }
   }
   discount {
+    # Kept applying while "Block all discounts" is on.
+    blockExempt: metafield(namespace: "$app:discount_block", key: "exempt") {
+      value
+    }
     metafield(namespace: "buy_more_save_more", key: "config") {
       value
     }

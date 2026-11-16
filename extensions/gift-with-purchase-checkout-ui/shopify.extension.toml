@@ -17,7 +17,3 @@ target = "purchase.checkout.actions.render-before"
 namespace = "gwp"
 key = "config"
 
-# "Block all discounts" flag: hides gift offers while it's on.
-[[extensions.metafields]]
-namespace = "$app:discount_block"
-key = "config"

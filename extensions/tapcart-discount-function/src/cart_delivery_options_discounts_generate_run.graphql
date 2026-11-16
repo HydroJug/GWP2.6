@@ -24,6 +24,10 @@ query DeliveryInput {
     }
   }
   discount {
+    # Kept applying while "Block all discounts" is on.
+    blockExempt: metafield(namespace: "$app:discount_block", key: "exempt") {
+      value
+    }
     discountClasses
     metafield(namespace: "tapcart", key: "discount_config") {
       value
