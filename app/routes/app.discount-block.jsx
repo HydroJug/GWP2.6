@@ -70,20 +70,22 @@ export const action = async ({ request }) => {
       await setExempt(admin, String(form.get("id")), form.get("exempt") === "true");
       state = await getBlockState(admin);
     } else return json({ ok: false, error: "Unknown action." }, { status: 400 });
-
-    if (intent !== "message") {
-      // Blocking, unblocking or exempting the GWP discount changes whether the
-      // storefront progress bar shows gift tiers; don't wait for the webhook.
-      try {
-        await syncGWPActiveState(admin, session.shop);
-      } catch (err) {
-        console.error("[discount-block] GWP sync failed (non-fatal):", err.message);
-      }
-    }
     return json({ ok: true, intent, errors: state.errors });
   } catch (err) {
     console.error(`[discount-block] ${intent} failed:`, err);
     return json({ ok: false, intent, error: err.message });
+  } finally {
+    // Blocking, unblocking or exempting the GWP discount changes whether the
+    // storefront and checkout offer gifts; don't wait for the webhook. Runs
+    // even when the action failed part way, since the flag may already have
+    // changed (e.g. enabled saved, then the pause run threw).
+    if (intent === "enable" || intent === "disable" || intent === "exempt") {
+      try {
+        await syncGWPActiveState(admin, session.shop);
+      } catch (err) {
+        console.error("[discount-block] GWP sync failed:", err.message);
+      }
+    }
   }
 };
 

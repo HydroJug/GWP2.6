@@ -511,9 +511,10 @@ async function reconcile(admin, { only = null } = {}) {
     // A discount added this run that never got paused has nothing to
     // restore. One already on the list keeps its original dates.
     s.paused = s.paused.filter((d) => !(failedIds.has(d.id) && addedIds.has(d.id)));
+    // A full run rechecked everything, so its problems replace all earlier
+    // ones (including errors for discounts since deleted or paused by hand).
     const ids = new Set(live.map((d) => d.id));
-    if (!only) ids.add(null);
-    s.errors = [...s.errors.filter((e) => !ids.has(e.id)), ...problems];
+    s.errors = only ? [...s.errors.filter((e) => !ids.has(e.id)), ...problems] : problems;
     s.needsSweep = problems.length > 0 || (only ? s.needsSweep : false);
   });
   if (!state.enabled) {
@@ -653,49 +654,48 @@ export async function resumeIfNeeded(admin) {
  * Called on every discounts/create|update webhook. While the block is on,
  * pauses the automatic discount if it's live (created or resumed in the admin)
  * and not this app's. Code discounts are ignored: they're handled at checkout,
- * and PostScript creates hundreds a day. Does a full sweep instead when there's
- * no ID or the last run didn't finish cleanly.
+ * and PostScript creates hundreds a day.
  *
- * If it fails, or a discount is left running, it holds the validation off (so
- * that discount doesn't block orders), marks the state for a full sweep, and
- * throws so the webhook returns an error and Shopify retries it.
+ * Only ever touches the one discount, so it fits in Shopify's 5 s webhook
+ * timeout. It never does a full sweep: that runs from the Block discounts
+ * page (on load, or "Finish turning on").
+ *
+ * If it can't pause the discount, it records the problem, holds the
+ * validation off (so that discount doesn't block orders) and marks the state
+ * for a full sweep. It doesn't throw: the problem is recorded and shown on the
+ * page, and a webhook retry wouldn't fix it.
  * Returns how many were paused.
  */
 export async function guardAutomaticDiscounts(admin, discountGid) {
-  if (discountGid && !discountGid.includes("DiscountAutomaticNode")) return 0;
+  // Shopify always sends the ID; without one there's nothing to check.
+  if (!discountGid || !discountGid.includes("DiscountAutomaticNode")) return 0;
   const state = await getBlockState(admin);
   if (!state.enabled) return 0;
 
-  let result;
   try {
-    if (!discountGid || state.needsSweep) {
-      result = await reconcile(admin);
-    } else {
-      const discount = await getAutomaticDiscount(admin, discountGid);
-      if (!needsPause(discount)) return 0;
-      result = await reconcile(admin, { only: [discount] });
-    }
+    const discount = await getAutomaticDiscount(admin, discountGid);
+    if (!needsPause(discount)) return 0;
+    // Records any failure and holds the validation off itself.
+    return (await reconcile(admin, { only: [discount] })).paused;
   } catch (err) {
+    console.error("[discount-block] guard failed:", err.message);
     try {
       await setValidationEnabled(admin, false);
     } catch {
-      // Already failing; the throw below gets the webhook retried.
+      // Already failing; the error below shows on the page.
     }
     try {
       await updateState(admin, (s) => {
         if (!s.enabled) return false;
         s.needsSweep = true;
-        s.errors = [...s.errors, { id: discountGid ?? null, title: "Discount check", message: err.message }];
+        s.errors = [
+          ...s.errors.filter((e) => e.id !== discountGid),
+          { id: discountGid, title: "Discount check", message: err.message },
+        ];
       });
     } catch {
       // Same.
     }
-    throw err;
+    return 0;
   }
-  if (result.held) {
-    throw new Error(
-      `Discount block isn't fully on: ${result.state.errors.map((e) => `${e.title}: ${e.message}`).join("; ")}`
-    );
-  }
-  return result.paused;
 }

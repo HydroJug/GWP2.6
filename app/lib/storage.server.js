@@ -627,6 +627,9 @@ export async function syncGWPActiveState(admin, shop) {
     // gives nothing, so the storefront must not offer gifts (the cart transform
     // would still price them at $0). Unless a GWP discount was marked to keep
     // working during the block.
+    // This assumes one active GWP discount (enforceSingleActiveGWP). With two,
+    // one exempt, gifts would stay on but only the exempt one's tiers apply,
+    // while the storefront shows whichever tiers the config holds.
     const exemptGwp = activeGwp.some((n) => n.blockExempt?.value === "true");
     if (hasActive && !exemptGwp) {
       try {
