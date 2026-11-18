@@ -1,6 +1,8 @@
 // Simple metafield-based storage for GWP settings
 // No database needed - store directly in Shopify app metafields
 
+import { getBlockState } from "./discountBlock.server";
+
 /** Keep in sync with the GWP list page, which filters discounts the same way. */
 export function isGwpDiscountFunction(fn) {
   if (fn?.apiType !== "discount") return false;
@@ -580,6 +582,7 @@ export async function syncGWPActiveState(admin, shop) {
             pageInfo { hasNextPage endCursor }
             nodes {
               id
+              blockExempt: metafield(namespace: "$app:discount_block", key: "exempt") { value }
               discount {
                 __typename
                 ... on DiscountAutomaticApp {
@@ -613,12 +616,28 @@ export async function syncGWPActiveState(admin, shop) {
     // A discount counts as GWP-active when its function is one of this app's
     // GWP discount functions and its status is ACTIVE. Other discount types
     // from this app (Combined, Bundle Builder, etc.) must not keep GWP on.
-    const hasActive = nodes.some((n) => {
+    const activeGwp = nodes.filter((n) => {
       const d = n?.discount;
       if (!d) return false;
       const fnId = d.appDiscountType?.functionId;
       return ourDiscountFnIds.has(fnId) && d.status === "ACTIVE";
     });
+    let hasActive = activeGwp.length > 0;
+    // While "Block all discounts" is on, the GWP discount stays active but
+    // gives nothing, so the storefront must not offer gifts (the cart transform
+    // would still price them at $0). Unless a GWP discount was marked to keep
+    // working during the block.
+    // This assumes one active GWP discount (enforceSingleActiveGWP). With two,
+    // one exempt, gifts would stay on but only the exempt one's tiers apply,
+    // while the storefront shows whichever tiers the config holds.
+    const exemptGwp = activeGwp.some((n) => n.blockExempt?.value === "true");
+    if (hasActive && !exemptGwp) {
+      try {
+        if ((await getBlockState(admin)).enabled) hasActive = false;
+      } catch (err) {
+        console.error("[syncGWPActiveState] discount block check failed (non-fatal):", err.message);
+      }
+    }
     console.log(`[syncGWPActiveState] computed hasActive=${hasActive}`);
 
     // Write to the app + shop metafields (read by the theme Liquid).

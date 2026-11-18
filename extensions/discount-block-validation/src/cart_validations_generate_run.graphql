@@ -1,0 +1,25 @@
+query CartValidationsGenerateRunInput {
+  buyerJourney {
+    step
+  }
+  cart {
+    # Set for POS checkouts (and POS-created draft orders edited in the admin).
+    retailLocation {
+      id
+    }
+    discountApplications {
+      # One of this app's discounts the merchant kept working during the block.
+      blockExempt: metafield(namespace: "$app:discount_block", key: "exempt") {
+        value
+      }
+      totalAllocatedAmount {
+        amount
+      }
+    }
+  }
+  shop {
+    block: metafield(namespace: "$app:discount_block", key: "config") {
+      jsonValue
+    }
+  }
+}

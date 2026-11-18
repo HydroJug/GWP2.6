@@ -3,6 +3,7 @@ import {
   syncGWPActiveState,
   enforceSingleActiveGWP,
 } from "../lib/storage.server";
+import { guardAutomaticDiscounts } from "../lib/discountBlock.server";
 
 /**
  * Handles discounts/create, discounts/update and discounts/delete.
@@ -14,12 +15,25 @@ import {
  * paused, resumed, or deleted from the native Shopify admin (outside the app).
  */
 export const action = async ({ request }) => {
-  const { shop, topic, admin } = await authenticate.webhook(request);
+  const { shop, topic, admin, payload } = await authenticate.webhook(request);
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
   // admin is undefined if the shop has uninstalled — nothing to sync then.
   if (admin) {
+    // While "Block all discounts" is on, any automatic discount created or
+    // resumed must be paused again, or it would stack on sale prices. Runs
+    // first so the GWP sync below sees it. If it can't, the guard records it,
+    // holds the checkout validation off so that discount doesn't block orders,
+    // and leaves the full sweep to the Block discounts page.
+    if (topic !== "DISCOUNTS_DELETE") {
+      try {
+        const paused = await guardAutomaticDiscounts(admin, payload?.admin_graphql_api_id);
+        if (paused) console.log(`[webhooks/discounts] Discount block re-paused ${paused} automatic discount(s)`);
+      } catch (err) {
+        console.error("[webhooks/discounts] discount block guard failed:", err.message);
+      }
+    }
     try {
       // If a GWP discount was just activated in the native admin, two could now
       // be live. Keep only the most-recently-updated one. This is a no-op when

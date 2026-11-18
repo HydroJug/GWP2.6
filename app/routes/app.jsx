@@ -33,6 +33,7 @@ export default function App() {
         <Link to="/app/discount-by-line-property">Line Item Property Discount</Link>
         <Link to="/app/bulk-discount-generator">Bulk Discount Generator</Link>
         <Link to="/app/gorgias">Gorgias</Link>
+        <Link to="/app/discount-block">Block All Discounts</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

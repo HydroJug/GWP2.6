@@ -1,236 +1,113 @@
-import {
-  reactExtension,
-  Banner,
-  BlockStack,
-  Button,
-  Heading,
-  Image,
-  InlineLayout,
-  Text,
-  SkeletonText,
-  useShop,
-  useApplyCartLinesChange,
-  useCartLines,
-  useDiscountCodes,
-  View,
-} from '@shopify/ui-extensions-react/checkout';
-import { useState, useEffect, useCallback } from 'react';
+import '@shopify/ui-extensions/preact';
+import {render} from 'preact';
+import {useEffect, useRef, useState} from 'preact/hooks';
 
-export default reactExtension(
-  'purchase.checkout.actions.render-before',
-  () => <Extension />,
-);
+// Gift-with-purchase picker shown before the checkout actions. Shows progress
+// toward the first tier, lets the customer add (or swap) a free gift per
+// unlocked tier, and removes gifts that no longer qualify.
+//
+// Config comes from the shop metafield gwp.config (written on save by
+// app/lib/storage.server.js: toStorefrontGwpConfig). The picker hides while GWP
+// is inactive or "Block all discounts" is on, since the cart transform prices
+// any gift line at $0.
 
-// The deployed app URL — config is read from here via network_access fetch
-// For local dev, temporarily replace this with your shopify app dev tunnel URL
-const APP_URL = 'https://gwp-2-6.vercel.app';
+export default async () => {
+  render(<Extension />, document.body);
+};
 
 const ITEMS_PER_PAGE = 3;
 
+const GIFT_FLAGS = ['_gift_with_purchase', '_gwp_gift'];
+const TIER_KEYS = ['_gift_tier_id', '_gwp_tier_id'];
+
+const isGiftLine = (line) =>
+  line.attributes?.some((a) => GIFT_FLAGS.includes(a.key) && a.value === 'true');
+const lineTierId = (line) => line.attributes?.find((a) => TIER_KEYS.includes(a.key))?.value;
+const toVariantGid = (id) =>
+  String(id).startsWith('gid://') ? String(id) : `gid://shopify/ProductVariant/${id}`;
+const formatDollars = (cents) => `$${(cents / 100).toFixed(2)}`;
+
 function Extension() {
-  const { myshopifyDomain } = useShop();
-  const cartLines = useCartLines();
-  const applyCartLinesChange = useApplyCartLinesChange();
-  const discountCodes = useDiscountCodes();
+  const gwp = readGwpConfig(shopify.appMetafields.value);
+  const cartLines = shopify.lines.value;
+  const hasAnyDiscountCodes = shopify.discountCodes.value.length > 0;
 
   const [showModal, setShowModal] = useState(false);
   const [isChanging, setIsChanging] = useState(false);
-  const [availableTiers, setAvailableTiers] = useState([]);
   const [selectedGifts, setSelectedGifts] = useState({});
   const [pageByTier, setPageByTier] = useState({});
-  const [configLoading, setConfigLoading] = useState(true);
-  const [configError, setConfigError] = useState(null);
-  const [lastCartTotal, setLastCartTotal] = useState(0);
-  const [hasShownModalForTier, setHasShownModalForTier] = useState(new Set());
 
-  // Identify gift items already in the cart
-  const existingGifts = cartLines.filter(line =>
-    line.attributes?.some(attr =>
-      (attr.key === '_gift_with_purchase' && attr.value === 'true') ||
-      (attr.key === '_gwp_gift' && attr.value === 'true')
-    )
+  // isActive is false while "Block all discounts" is on, unless the GWP
+  // discount was marked to keep working (syncGWPActiveState).
+  const tiers = gwp?.isActive !== false ? (gwp?.tiers ?? []) : [];
+
+  const existingGifts = cartLines.filter(isGiftLine);
+  const giftsForTier = (tierId) => existingGifts.filter((line) => lineTierId(line) === tierId);
+
+  // Variants already in the cart, keyed by tier, for the "selected" state.
+  const currentlySelectedVariants = {};
+  for (const gift of existingGifts) {
+    const tierId = lineTierId(gift);
+    if (tierId && gift.merchandise?.id) currentlySelectedVariants[`${tierId}-${gift.merchandise.id}`] = true;
+  }
+
+  // Cart total in cents, excluding gift lines.
+  const cartTotal = cartLines.reduce(
+    (total, line) =>
+      isGiftLine(line) ? total : total + Math.round(Number(line.cost.totalAmount.amount) * 100),
+    0,
   );
 
-  // Map existing gift cart lines to their variantId+tierId for "selected" state
-  const currentlySelectedVariants = {};
-  existingGifts.forEach(gift => {
-    const tierId = gift.attributes?.find(
-      a => a.key === '_gwp_tier_id' || a.key === '_gift_tier_id'
-    )?.value;
-    const variantId = gift.merchandise?.id?.split('/').pop();
-    if (tierId && variantId) {
-      currentlySelectedVariants[`${tierId}-${variantId}`] = true;
-    }
-  });
+  // Unlocked tiers, highest first.
+  const unlockedTiers = [...tiers]
+    .sort((a, b) => b.thresholdAmount - a.thresholdAmount)
+    .filter((tier) => cartTotal >= tier.thresholdAmount);
 
-  // Cart subtotal in cents, excluding gift items
-  const cartTotal = cartLines.reduce((total, line) => {
-    const isGift = line.attributes?.some(attr =>
-      (attr.key === '_gwp_gift' && attr.value === 'true') ||
-      (attr.key === '_gift_with_purchase' && attr.value === 'true')
+  // Gift slots left per unlocked tier. A tier is skipped once the customer has
+  // taken a gift from a higher tier.
+  const availableSelections = {};
+  for (const tier of unlockedTiers) {
+    const selected = giftsForTier(tier.id).length;
+    const remaining = tier.maxSelections - selected;
+    if (remaining <= 0) continue;
+    const hasHigherTierGifts = unlockedTiers.some(
+      (higher) => higher.thresholdAmount > tier.thresholdAmount && giftsForTier(higher.id).length > 0,
     );
-    if (isGift) return total;
-    return total + Math.round(parseFloat(line.cost.totalAmount.amount) * 100);
-  }, 0);
+    if (!hasHigherTierGifts) availableSelections[tier.id] = {tier, remaining, selected};
+  }
 
-  const appliedDiscountCodes = discountCodes || [];
-  const hasAnyDiscountCodes = appliedDiscountCodes.length > 0;
-  const showDiscountWarning = existingGifts.length > 0 && hasAnyDiscountCodes;
-
-  // Which tiers has the cart value unlocked?
-  const getUnlockedTiers = useCallback(() => {
-    return [...availableTiers]
-      .sort((a, b) => b.thresholdAmount - a.thresholdAmount)
-      .filter(tier => cartTotal >= tier.thresholdAmount);
-  }, [availableTiers, cartTotal]);
-
-  // How many gift selections remain per unlocked tier?
-  const getAvailableSelections = useCallback(() => {
-    const sortedTiers = getUnlockedTiers();
-    const availableSelections = {};
-
-    sortedTiers.forEach(tier => {
-      if (cartTotal < tier.thresholdAmount) return;
-
-      const tierGifts = existingGifts.filter(gift =>
-        gift.attributes?.some(attr =>
-          (attr.key === '_gift_tier_id' && attr.value === tier.id) ||
-          (attr.key === '_gwp_tier_id' && attr.value === tier.id)
-        )
-      );
-      const remainingSelections = tier.maxSelections - tierGifts.length;
-
-      if (remainingSelections > 0) {
-        const hasHigherTierGifts = sortedTiers.some(higherTier => {
-          if (higherTier.thresholdAmount <= tier.thresholdAmount) return false;
-          return existingGifts.some(gift =>
-            gift.attributes?.some(attr =>
-              (attr.key === '_gift_tier_id' && attr.value === higherTier.id) ||
-              (attr.key === '_gwp_tier_id' && attr.value === higherTier.id)
-            )
-          );
-        });
-
-        if (!hasHigherTierGifts) {
-          availableSelections[tier.id] = {
-            tier,
-            remaining: remainingSelections,
-            selected: tierGifts.length,
-          };
-        }
-      }
-    });
-
-    return availableSelections;
-  }, [getUnlockedTiers, existingGifts, cartTotal, availableTiers]);
-
-  // Load GWP config from the app's public endpoint via fetch (network_access)
-  // displayProducts is pre-built at save time — no Storefront API call needed
+  // Remove gifts that no longer qualify (cart dropped below the tier threshold).
+  const removing = useRef(new Set());
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        if (!myshopifyDomain) throw new Error('Could not determine shop domain');
-
-        const response = await fetch(
-          `${APP_URL}/api/public/gwp-settings?shop=${myshopifyDomain}`
-        );
-        if (!response.ok) throw new Error(`Config fetch failed: ${response.status}`);
-
-        const data = await response.json();
-
-        // tiers may be an array or a JSON string depending on storage path
-        let tiers = data.tiers;
-        if (typeof tiers === 'string') tiers = JSON.parse(tiers);
-
-        if (Array.isArray(tiers) && tiers.length > 0) {
-          setAvailableTiers(tiers);
-        }
-      } catch (error) {
-        setConfigError(error.message || 'Failed to load configuration');
-      } finally {
-        setConfigLoading(false);
-      }
-    };
-
-    fetchConfig();
-  }, [myshopifyDomain]);
-
-  // Auto-show modal when a new tier is unlocked
-  useEffect(() => {
-    if (configLoading || availableTiers.length === 0) return;
-
-    const unlockedTiers = getUnlockedTiers();
-    const availableSelections = getAvailableSelections();
-
-    const newlyUnlocked = unlockedTiers.filter(
-      tier => !hasShownModalForTier.has(tier.id) && availableSelections[tier.id]?.remaining > 0
-    );
-
-    if (newlyUnlocked.length > 0 && cartTotal > lastCartTotal && cartTotal > 0) {
-      const updated = new Set(hasShownModalForTier);
-      newlyUnlocked.forEach(tier => updated.add(tier.id));
-      setHasShownModalForTier(updated);
-    }
-
-    setLastCartTotal(cartTotal);
-  }, [cartTotal, availableTiers, configLoading]);
-
-  // Remove gifts that no longer qualify (cart dropped below tier threshold)
-  const removeIneligibleGifts = useCallback(async () => {
-    if (!cartLines || availableTiers.length === 0) return;
-
-    const giftItems = cartLines.filter(line =>
-      line.attributes?.some(attr =>
-        (attr.key === '_gift_with_purchase' && attr.value === 'true') ||
-        (attr.key === '_gwp_gift' && attr.value === 'true')
-      )
-    );
-
-    const lowestTier = availableTiers.reduce((lowest, tier) =>
-      tier.thresholdAmount < lowest.thresholdAmount ? tier : lowest
-    );
-
-    for (const giftItem of giftItems) {
-      const tierIdAttr = giftItem.attributes?.find(
-        attr => attr.key === '_gift_tier_id' || attr.key === '_gwp_tier_id'
-      );
-
-      const threshold = tierIdAttr
-        ? availableTiers.find(t => t.id === tierIdAttr.value)?.thresholdAmount
-        : lowestTier.thresholdAmount;
-
-      if (threshold !== undefined && cartTotal < threshold) {
+    if (!tiers.length) return undefined;
+    const lowestTier = tiers.reduce((low, tier) => (tier.thresholdAmount < low.thresholdAmount ? tier : low));
+    const id = setTimeout(async () => {
+      for (const gift of existingGifts) {
+        const tierId = lineTierId(gift);
+        const threshold = tierId
+          ? tiers.find((t) => t.id === tierId)?.thresholdAmount
+          : lowestTier.thresholdAmount;
+        if (threshold === undefined || cartTotal >= threshold || removing.current.has(gift.id)) continue;
+        removing.current.add(gift.id);
         try {
-          await applyCartLinesChange({
-            type: 'removeCartLine',
-            id: giftItem.id,
-            quantity: giftItem.quantity,
-          });
-        } catch (_) {}
+          await shopify.applyCartLinesChange({type: 'removeCartLine', id: gift.id, quantity: gift.quantity});
+        } catch (_) {
+          // Leave it; the next cart change retries.
+        } finally {
+          removing.current.delete(gift.id);
+        }
       }
-    }
-  }, [cartLines, cartTotal, availableTiers, applyCartLinesChange]);
+    }, 500);
+    return () => clearTimeout(id);
+  }, [cartTotal, tiers.length, existingGifts.map((g) => g.id).join()]);
 
-  useEffect(() => {
-    if (cartTotal !== undefined && availableTiers.length > 0) {
-      const id = setTimeout(() => removeIneligibleGifts(), 500);
-      return () => clearTimeout(id);
-    }
-  }, [cartTotal, removeIneligibleGifts]);
-
-  // Add (or swap) a gift variant in the cart
+  // Add (or swap) a gift variant in the cart.
   const handleSelectGift = async (variantId, tierId) => {
     try {
-      // Remove any existing gift for this tier first (handles swap/change flow)
-      const existingTierGift = existingGifts.find(gift =>
-        gift.attributes?.some(attr =>
-          (attr.key === '_gift_tier_id' && attr.value === tierId) ||
-          (attr.key === '_gwp_tier_id' && attr.value === tierId)
-        )
-      );
+      const existingTierGift = existingGifts.find((gift) => lineTierId(gift) === tierId);
       if (existingTierGift) {
         try {
-          await applyCartLinesChange({
+          await shopify.applyCartLinesChange({
             type: 'removeCartLine',
             id: existingTierGift.id,
             quantity: existingTierGift.quantity,
@@ -238,26 +115,22 @@ function Extension() {
         } catch (_) {}
       }
 
-      const result = await applyCartLinesChange({
+      const result = await shopify.applyCartLinesChange({
         type: 'addCartLine',
-        merchandiseId: `gid://shopify/ProductVariant/${variantId}`,
+        merchandiseId: variantId,
         quantity: 1,
         attributes: [
-          { key: '_gift_with_purchase', value: 'true' },
-          { key: '_gift_tier_id', value: tierId },
-          { key: '_gwp_gift', value: 'true' },
-          { key: '_gwp_tier_id', value: tierId },
-          { key: '_gwp_added_via', value: 'checkout_extension' },
+          {key: '_gift_with_purchase', value: 'true'},
+          {key: '_gift_tier_id', value: tierId},
+          {key: '_gwp_gift', value: 'true'},
+          {key: '_gwp_tier_id', value: tierId},
+          {key: '_gwp_added_via', value: 'checkout_extension'},
         ],
       });
 
       if (result.type === 'success') {
-        setSelectedGifts(prev => ({ ...prev, [`${tierId}-${variantId}`]: true }));
-        const availableSelections = getAvailableSelections();
-        const totalRemaining = Object.values(availableSelections).reduce(
-          (sum, sel) => sum + sel.remaining,
-          0
-        );
+        setSelectedGifts((prev) => ({...prev, [`${tierId}-${variantId}`]: true}));
+        const totalRemaining = Object.values(availableSelections).reduce((sum, sel) => sum + sel.remaining, 0);
         if (totalRemaining <= 1) {
           setTimeout(() => {
             setShowModal(false);
@@ -273,301 +146,240 @@ function Extension() {
     setIsChanging(false);
   };
 
-  // ── Derived display values ────────────────────────────────────────────────
-  const availableSelections = getAvailableSelections();
-  const showGiftOffer = Object.keys(availableSelections).length > 0 && !hasAnyDiscountCodes;
-  const unlockedTiers = getUnlockedTiers();
-  const highestTier = unlockedTiers[0] ?? null;
-  const sortedAll = [...availableTiers].sort((a, b) => a.thresholdAmount - b.thresholdAmount);
-  const nextTier = sortedAll.find(tier => cartTotal < tier.thresholdAmount);
+  if (!tiers.length) return null;
 
-  // In change mode, build selections from all unlocked tiers (even if slots are full)
+  const showGiftOffer = Object.keys(availableSelections).length > 0 && !hasAnyDiscountCodes;
+  const showDiscountWarning = existingGifts.length > 0 && hasAnyDiscountCodes;
+  const highestTier = unlockedTiers[0] ?? null;
+  const sortedAll = [...tiers].sort((a, b) => a.thresholdAmount - b.thresholdAmount);
+  const nextTier = sortedAll.find((tier) => cartTotal < tier.thresholdAmount);
+
+  // In change mode, list every unlocked tier (even full ones).
   const modalSelections = isChanging
     ? Object.fromEntries(
-        unlockedTiers.map(tier => [
-          tier.id,
-          {
-            tier,
-            remaining: 0,
-            selected: existingGifts.filter(g =>
-              g.attributes?.some(a =>
-                (a.key === '_gwp_tier_id' && a.value === tier.id) ||
-                (a.key === '_gift_tier_id' && a.value === tier.id)
-              )
-            ).length,
-          },
-        ])
+        unlockedTiers.map((tier) => [tier.id, {tier, remaining: 0, selected: giftsForTier(tier.id).length}]),
       )
     : availableSelections;
 
-  // ── Shared gift picker modal ──────────────────────────────────────────────
   const giftModal = showModal ? (
-    <BlockStack spacing="none" padding="base" border="base" cornerRadius="base">
-      <BlockStack spacing="extraTight">
-        <Heading level={2} inlineAlignment="center">
+    <s-box padding="base" border="base" borderRadius="base">
+      <s-stack gap="small-200">
+        <s-heading>
           {isChanging
             ? 'Change Your Free Gift'
             : `Choose Your Free Gift${Object.keys(modalSelections).length > 1 ? 's' : ''}`}
-        </Heading>
-        <BlockStack inlineAlignment="center">
-          <Text size="small" appearance="subdued">
-            {isChanging
-              ? 'Select a different gift to swap your current selection:'
-              : 'Select your complimentary gift(s) to add to your cart:'}
-          </Text>
-        </BlockStack>
+        </s-heading>
+        <s-text color="subdued">
+          {isChanging
+            ? 'Select a different gift to swap your current selection:'
+            : 'Select your complimentary gift(s) to add to your cart:'}
+        </s-text>
 
         {Object.entries(modalSelections).map(([tierId, selection]) => {
-          const products = selection.tier.displayProducts || [];
+          const products = tierProducts(selection.tier);
           const page = pageByTier[tierId] || 0;
           const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
-          const visibleProducts = products.slice(
-            page * ITEMS_PER_PAGE,
-            (page + 1) * ITEMS_PER_PAGE
-          );
+          const visibleProducts = products.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
 
           return (
-            <BlockStack key={tierId} spacing="none" padding={['extraTight', 'none', 'none', 'none']}>
-              <Text size="base" emphasis="strong">{selection.tier.name}</Text>
+            <s-stack key={tierId} gap="small-300">
+              <s-text type="strong">{selection.tier.name}</s-text>
               {!isChanging && (
-                <Text size="base" appearance="subdued">
+                <s-text color="subdued">
                   {selection.tier.description} — {selection.remaining} remaining
-                </Text>
+                </s-text>
               )}
 
-              <BlockStack spacing="none" padding={['extraTight', 'none', 'none', 'none']}>
-                {products.length > 0 ? (
-                  <>
-                    {visibleProducts.map(product => {
-                      let imageUrl = product.image;
-                      if (imageUrl?.startsWith('//')) imageUrl = `https:${imageUrl}`;
-                      if (imageUrl && !imageUrl.startsWith('http')) imageUrl = null;
+              {products.length === 0 && (
+                <s-text color="subdued">No gift options configured for this tier.</s-text>
+              )}
 
-                      const key = `${tierId}-${product.variantId}`;
-                      const isCurrentCart = !!currentlySelectedVariants[key];
-                      const wasJustAdded = !!selectedGifts[key];
-                      const isSelected = isCurrentCart || wasJustAdded;
-
-                      return (
-                        <BlockStack key={product.variantId} spacing="extraTight" padding="extraTight">
-                          <InlineLayout
-                            spacing="tight"
-                            blockAlignment="center"
-                            columns={imageUrl ? ['72px', 'fill', 'auto'] : ['fill', 'auto']}
-                          >
-                            {imageUrl && (
-                              <View>
-                                <Image
-                                  source={imageUrl}
-                                  accessibilityDescription={product.title}
-                                  aspectRatio={1}
-                                  fit="cover"
-                                  loading="eager"
-                                  sizes="small"
-                                />
-                              </View>
-                            )}
-                            <BlockStack spacing="none">
-                              <Text size="base" emphasis="strong">
-                                {product.title}
-                              </Text>
-                              <Text size="small" appearance="subdued">
-                                FREE
-                              </Text>
-                            </BlockStack>
-                            <Button
-                              kind="secondary"
-                              size="extraSmall"
-                              disabled={isSelected}
-                              onPress={() => handleSelectGift(product.variantId, tierId)}
-                            >
-                              {isSelected ? '✓ Selected' : isChanging ? 'Select' : 'Add'}
-                            </Button>
-                          </InlineLayout>
-                        </BlockStack>
-                      );
-                    })}
-
-                    {totalPages > 1 && (
-                      <InlineLayout columns={['fill', 'auto', 'fill']} blockAlignment="center" padding={['tight', 'none', 'none', 'none']}>
-                        <BlockStack inlineAlignment="start">
-                          <Button
-                            kind="secondary"
-                            size="small"
-                            disabled={page === 0}
-                            onPress={() =>
-                              setPageByTier(prev => ({ ...prev, [tierId]: page - 1 }))
-                            }
-                          >
-                            ←
-                          </Button>
-                        </BlockStack>
-                        <Text size="extraSmall" appearance="subdued">
-                          {page + 1} / {totalPages}
-                        </Text>
-                        <BlockStack inlineAlignment="end">
-                          <Button
-                            kind="secondary"
-                            size="small"
-                            disabled={page >= totalPages - 1}
-                            onPress={() =>
-                              setPageByTier(prev => ({ ...prev, [tierId]: page + 1 }))
-                            }
-                          >
-                            →
-                          </Button>
-                        </BlockStack>
-                      </InlineLayout>
+              {visibleProducts.map((product) => {
+                const key = `${tierId}-${product.variantId}`;
+                const isSelected = !!currentlySelectedVariants[key] || !!selectedGifts[key];
+                return (
+                  <s-grid
+                    key={product.variantId}
+                    gridTemplateColumns={product.image ? '72px 1fr auto' : '1fr auto'}
+                    alignItems="center"
+                    gap="small-200"
+                  >
+                    {product.image && (
+                      <s-image src={product.image} alt={product.title} aspectRatio="1" objectFit="cover" loading="eager" />
                     )}
-                  </>
-                ) : (
-                  <Text size="extraSmall" appearance="subdued">
-                    No gift options configured for this tier.
-                  </Text>
-                )}
-              </BlockStack>
-            </BlockStack>
+                    <s-stack gap="none">
+                      <s-text type="strong">{product.title}</s-text>
+                      <s-text color="subdued">FREE</s-text>
+                    </s-stack>
+                    <s-button
+                      variant="secondary"
+                      disabled={isSelected}
+                      onClick={() => handleSelectGift(product.variantId, tierId)}
+                    >
+                      {isSelected ? '✓ Selected' : isChanging ? 'Select' : 'Add'}
+                    </s-button>
+                  </s-grid>
+                );
+              })}
+
+              {totalPages > 1 && (
+                <s-grid gridTemplateColumns="1fr auto 1fr" alignItems="center" gap="small-200">
+                  <s-stack alignItems="start">
+                    <s-button
+                      variant="secondary"
+                      accessibilityLabel="Previous gifts"
+                      disabled={page === 0}
+                      onClick={() => setPageByTier((prev) => ({...prev, [tierId]: page - 1}))}
+                    >
+                      ←
+                    </s-button>
+                  </s-stack>
+                  <s-text color="subdued">
+                    {page + 1} / {totalPages}
+                  </s-text>
+                  <s-stack alignItems="end">
+                    <s-button
+                      variant="secondary"
+                      accessibilityLabel="More gifts"
+                      disabled={page >= totalPages - 1}
+                      onClick={() => setPageByTier((prev) => ({...prev, [tierId]: page + 1}))}
+                    >
+                      →
+                    </s-button>
+                  </s-stack>
+                </s-grid>
+              )}
+            </s-stack>
           );
         })}
 
-        <Button kind="secondary" size="small" onPress={closeModal}>
+        <s-button variant="secondary" onClick={closeModal}>
           Close
-        </Button>
-      </BlockStack>
-    </BlockStack>
+        </s-button>
+      </s-stack>
+    </s-box>
   ) : null;
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
-  if (configLoading) {
-    return (
-      <BlockStack spacing="base">
-        <Banner status="info">
-          <BlockStack spacing="tight">
-            <SkeletonText inlineSize="large" />
-            <SkeletonText inlineSize="medium" />
-          </BlockStack>
-        </Banner>
-      </BlockStack>
-    );
-  }
-
-  // Show error for debugging (remove in production)
-  if (configError) {
-    return (
-      <Banner status="critical">
-        <Text size="small">GWP config error: {configError}</Text>
-      </Banner>
-    );
-  }
-
-  if (availableTiers.length === 0) {
-    return null;
-  }
-
-  // Eligible for gifts — slots still available
+  // Eligible for gifts with slots still open.
   if (showGiftOffer) {
     return (
-      <BlockStack spacing="base">
+      <s-stack gap="base">
         {showDiscountWarning && (
-          <Banner status="warning">
-            <Text size="small" emphasis="strong">
+          <s-banner tone="warning">
+            <s-text type="strong">
               ⚠️ *Free gifts cannot be combined with other discount codes or promotional offers
-            </Text>
-          </Banner>
+            </s-text>
+          </s-banner>
         )}
 
-        <Banner status="success">
-          <BlockStack spacing="tight">
-            <Text size="medium" emphasis="strong">
-              🎁 {highestTier
-                ? `${highestTier.name}: ${highestTier.description}`
-                : 'Free gifts available!'}
-            </Text>
-            <Button kind="secondary" onPress={() => setShowModal(true)}>
+        <s-banner tone="success">
+          <s-stack gap="small-200">
+            <s-text type="strong">
+              🎁 {highestTier ? `${highestTier.name}: ${highestTier.description}` : 'Free gifts available!'}
+            </s-text>
+            <s-button variant="secondary" onClick={() => setShowModal(true)}>
               Choose Your Free Gift{Object.keys(availableSelections).length > 1 ? 's' : ''}
-            </Button>
-          </BlockStack>
-        </Banner>
+            </s-button>
+          </s-stack>
+        </s-banner>
 
         {nextTier && (
-          <Banner status="info">
-            <Text size="small">
-              {`$${((nextTier.thresholdAmount - cartTotal) / 100).toFixed(2)} away from next tier`}
-            </Text>
-          </Banner>
+          <s-banner tone="info">
+            <s-text>{`${formatDollars(nextTier.thresholdAmount - cartTotal)} away from next tier`}</s-text>
+          </s-banner>
         )}
 
         {giftModal}
-      </BlockStack>
+      </s-stack>
     );
   }
 
-  // Discount code blocking gift offer
+  // A discount code is blocking the gift offer.
   if (hasAnyDiscountCodes && sortedAll.length > 0 && cartTotal >= sortedAll[0].thresholdAmount) {
     return (
-      <BlockStack spacing="base">
-        <Banner status="warning">
-          <BlockStack spacing="tight">
-            <Text size="medium" emphasis="strong">
-              🚫 Free gifts unavailable with current discount code
-            </Text>
-            <Text size="small">
-              Free gifts cannot be combined with other discount codes. Remove your discount code to
-              access free gifts.
-            </Text>
-          </BlockStack>
-        </Banner>
-      </BlockStack>
+      <s-banner tone="warning">
+        <s-stack gap="small-200">
+          <s-text type="strong">🚫 Free gifts unavailable with current discount code</s-text>
+          <s-text>
+            Free gifts cannot be combined with other discount codes. Remove your discount code to access free
+            gifts.
+          </s-text>
+        </s-stack>
+      </s-banner>
     );
   }
 
-  // Progress toward first tier
+  // Progress toward the first tier.
   if (sortedAll.length > 0 && cartTotal > 0 && !hasAnyDiscountCodes) {
     const firstTier = sortedAll[0];
     const remaining = firstTier.thresholdAmount - cartTotal;
-
     if (remaining > 0) {
       return (
-        <BlockStack spacing="base">
-          <Banner status="info">
-            <BlockStack spacing="tight">
-              <Text size="medium" emphasis="strong">
-                {`🎁 You're $${(remaining / 100).toFixed(2)} away from a free gift!`}
-              </Text>
-              <Text size="small">{firstTier.description}</Text>
-            </BlockStack>
-          </Banner>
-        </BlockStack>
+        <s-banner tone="info">
+          <s-stack gap="small-200">
+            <s-text type="strong">{`🎁 You're ${formatDollars(remaining)} away from a free gift!`}</s-text>
+            <s-text>{firstTier.description}</s-text>
+          </s-stack>
+        </s-banner>
       );
     }
   }
 
-  // All gift slots filled — show confirmation with change option
+  // Every gift slot filled: confirm, with an option to swap.
   if (existingGifts.length > 0 && unlockedTiers.length > 0 && !hasAnyDiscountCodes) {
     return (
-      <BlockStack spacing="base">
-        <Banner status="success">
-          <BlockStack spacing="tight">
-            <Text size="medium" emphasis="strong">
-              🎁 Your free gift has been added to your cart!
-            </Text>
-            <Button
-              kind="secondary"
-              onPress={() => {
+      <s-stack gap="base">
+        <s-banner tone="success">
+          <s-stack gap="small-200">
+            <s-text type="strong">🎁 Your free gift has been added to your cart!</s-text>
+            <s-button
+              variant="secondary"
+              onClick={() => {
                 setIsChanging(true);
                 setShowModal(true);
               }}
             >
               Change Gift
-            </Button>
-          </BlockStack>
-        </Banner>
-
+            </s-button>
+          </s-stack>
+        </s-banner>
         {giftModal}
-      </BlockStack>
+      </s-stack>
     );
   }
 
   return null;
+}
+
+/** One entry per gift variant: { variantId (GID), title, image }. */
+function tierProducts(tier) {
+  const list = Array.isArray(tier.giftProducts) && tier.giftProducts.length ? tier.giftProducts : tier.displayProducts ?? [];
+  return list
+    .filter((p) => p?.variantId)
+    .map((p) => {
+      let image = p.image ?? null;
+      if (image?.startsWith('//')) image = `https:${image}`;
+      if (image && !image.startsWith('http')) image = null;
+      return {variantId: toVariantGid(p.variantId), title: p.title, image};
+    });
+}
+
+/** The gwp.config shop metafield declared in shopify.extension.toml. */
+function readGwpConfig(entries) {
+  return parseJson(
+    entries.find(
+      ({target, metafield}) =>
+        target.type === 'shop' && metafield.namespace === 'gwp' && metafield.key === 'config',
+    ),
+  );
+}
+
+function parseJson(entry) {
+  if (!entry) return null;
+  try {
+    const value = JSON.parse(String(entry.metafield.value));
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
 }

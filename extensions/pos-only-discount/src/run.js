@@ -9,6 +9,8 @@
  * by specific products or collections.
  */
 export function run(input) {
+  // Deliberately ignores the app's "Block all discounts" toggle: the block is
+  // for online sale pricing, and POS-only discounts keep working in store.
   const metafieldValue = input.discount?.metafield?.value;
   if (!metafieldValue) return { operations: [] };
 

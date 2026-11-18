@@ -1,0 +1,23 @@
+# Checkout half of the app's "Block all discounts" toggle
+# (app/lib/discountBlock.server.js). While the toggle is on, removes any
+# discount code entered at checkout and explains why.
+#
+# Must be added once in Settings > Checkout > Customize (it sits under the
+# discount code field). It only shows anything while the toggle is on.
+
+api_version = "2026-10"
+
+[[extensions]]
+name = "Block all discounts"
+handle = "discount-block-checkout"
+type = "ui_extension"
+uid = "7b875567-f7e9-b4c8-8adb-b91e78062c5ba6bc323a"
+
+[[extensions.targeting]]
+module = "./src/Checkout.jsx"
+target = "purchase.checkout.reductions.render-after"
+
+# { enabled, message }, written by the app when the toggle changes.
+[[extensions.metafields]]
+namespace = "$app:discount_block"
+key = "config"

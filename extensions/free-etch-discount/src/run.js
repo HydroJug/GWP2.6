@@ -21,6 +21,12 @@ function parseRubyHash(str) {
  * @returns {FunctionRunResult}
  */
 export function run(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing,
+  // unless the merchant marked this discount "Keep working during the block".
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true && input.discount?.blockExempt?.value !== "true") {
+    return { operations: [] };
+  }
+
   // Read config from the discount's metafield
   const configValue = input.discount?.metafield?.value;
   if (!configValue) {

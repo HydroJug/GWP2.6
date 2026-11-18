@@ -17,6 +17,11 @@
 const SLOT_KEY = ['s0','s1','s2','s3','s4','s5','s6'];
 
 export function run(input) {
+  // "Block all discounts" is on: the discount stays active but applies nothing.
+  // Unlike the other functions this one can't read the "keep working" flag:
+  // its input query is at Shopify's complexity limit (7 collection slots).
+  if (input.shop?.discountBlock?.jsonValue?.enabled === true) return { operations: [] };
+
   const metafieldValue = input.discount?.metafield?.value;
   if (!metafieldValue) {
     console.log("[BundleBuilder] config metafield: NULL");
